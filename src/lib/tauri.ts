@@ -164,6 +164,41 @@ export const aiOpenLogin = (provider: "claude" | "codex") =>
   invoke<void>("ai_open_login", { provider });
 
 // ─────────────────────────────────────────────────────────────
+// OpenRouter catalog
+// ─────────────────────────────────────────────────────────────
+//
+// The catalog is fetched in the background on app start (see
+// src-tauri/src/lib.rs::setup) and cached on disk under app_data_dir.
+// `openrouter_models_get` returns the cached snapshot; the frontend
+// should also subscribe to `openrouter:catalog:updated` events so the
+// picker hot-swaps the list when a fresh fetch lands.
+
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  description?: string | null;
+  context_length?: number | null;
+  max_output_length?: number | null;
+  /** "text" | "image" | "file" | … — used to gate image attachments. */
+  input_modalities: string[];
+  output_modalities: string[];
+  /** "tools" | "json_mode" | "structured_outputs" | "reasoning" | … */
+  supported_features: string[];
+  pricing?: unknown;
+  deprecation_date?: string | null;
+}
+
+export interface OpenRouterCatalog {
+  fetched_at: number;
+  models: OpenRouterModel[];
+}
+
+export const openrouterModelsGet = () =>
+  invoke<OpenRouterCatalog | null>("openrouter_models_get");
+export const openrouterModelsRefresh = () =>
+  invoke<void>("openrouter_models_refresh");
+
+// ─────────────────────────────────────────────────────────────
 // Global hotkey
 // ─────────────────────────────────────────────────────────────
 export const setGlobalShortcut = (combo: string) =>
