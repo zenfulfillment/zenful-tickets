@@ -22,8 +22,60 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Create the draft GitHub Release ONCE before any matrix build runs. Without
+  # this, every matrix entry calls into tauri-action with `tagName` set, all
+  # four entries race to create a release for the same tag, GitHub honours
+  # exactly one of them, and the other three uploaders end up posting their
+  # bundles to a phantom release that's later discarded — leaving the final
+  # release with only one platform's assets. The matrix below references
+  # `releaseId` (instead of `tagName`) so every uploader targets THIS draft.
+  #
+  # Pattern from the official Tauri 2 GitHub Actions pipeline guide:
+  # https://v2.tauri.app/distribute/pipelines/github/
+  create-release:
+    name: create draft release
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.result }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create or look up draft release
+        id: create
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            // Reuse an existing draft for this tag if one is hanging around
+            // from a prior failed run — saves the user a manual cleanup
+            // step when they re-trigger after a flaky build.
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            const existing = releases.find(r => r.tag_name === tag && r.draft);
+            if (existing) {
+              core.info(`Reusing existing draft release id=${existing.id} for ${tag}`);
+              return existing.id;
+            }
+            const created = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Zenful Tickets ${tag}`,
+              body: 'See the assets below to download this version.',
+              draft: true,
+              prerelease: false,
+            });
+            core.info(`Created draft release id=${created.data.id} for ${tag}`);
+            return created.data.id;
+          result-encoding: string
+
   build:
     name: build (${{ matrix.platform }} ${{ matrix.args }})
+    needs: create-release
     permissions:
       contents: write
     strategy:
@@ -81,6 +133,11 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # `releaseId` points each matrix uploader at the SAME draft release
+      # created in the prior job. Setting `tagName` here instead causes all
+      # four matrix entries to race-create a release for the same tag —
+      # GitHub honours one and the others' uploads are silently lost. See
+      # the comment on the `create-release` job above.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -88,11 +145,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Zenful Tickets ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download this version.'
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
 
   # After all matrix builds finish: mirror each platform's primary bundle to a
