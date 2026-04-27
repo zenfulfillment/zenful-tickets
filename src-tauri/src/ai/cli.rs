@@ -528,6 +528,10 @@ pub fn open_login_terminal(provider: &str) -> AppResult<()> {
 
     let path_env = augmented_path();
 
+    // Used by the macOS Ghostty fallback and every Linux terminal — Windows
+    // wraps the same prompt as a `.cmd`/`.bat` invocation further down, so
+    // gate this so Windows builds don't fire `unused_variable`.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     let inner_unix = format!("{login_cmd}; echo; read -rp 'Press Enter to close…'");
 
     #[cfg(target_os = "macos")]
