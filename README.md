@@ -24,23 +24,30 @@ Describe what needs to be built. Get a complete, editable Jira draft — title, 
 
 ## Table of Contents
 
-- [Overview](#overview)
-- [Features](#features)
-- [How It Works](#how-it-works)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [Tech Stack](#tech-stack)
-- [Development](#development)
-- [Building From Source](#building-from-source)
-- [Releasing](#releasing)
-- [Security](#security)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [License](#license)
-- [Acknowledgements](#acknowledgements)
+- [Zenful Tickets](#zenful-tickets)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [Features](#features)
+  - [How It Works](#how-it-works)
+  - [Installation](#installation)
+    - [Download a release](#download-a-release)
+    - [Homebrew (macOS, planned)](#homebrew-macos-planned)
+    - [From source](#from-source)
+  - [Quick Start](#quick-start)
+  - [Configuration](#configuration)
+  - [Architecture](#architecture)
+    - [Capability model](#capability-model)
+  - [Project Structure](#project-structure)
+  - [Tech Stack](#tech-stack)
+  - [Development](#development)
+    - [Prerequisites](#prerequisites)
+    - [Run the app](#run-the-app)
+    - [Other useful commands](#other-useful-commands)
+    - [Working with the design mockups](#working-with-the-design-mockups)
+  - [Building From Source](#building-from-source)
+  - [Releasing](#releasing)
+  - [Security](#security)
+  - [Contributing](#contributing)
 
 ## Overview
 
@@ -300,17 +307,6 @@ Paste the file contents into `TAURI_SIGNING_PRIVATE_KEY`; the matching public ke
 
 Found a vulnerability? Please email **kevin.koester@zenfulfillment.com** rather than opening a public issue.
 
-## Roadmap
-
-See [`TODO.md`](./TODO.md) for the current MVP checklist. Post-MVP candidates include:
-
-- Draft history / session persistence
-- `zenfultickets://` deep-link scheme
-- Auto-submit-after-silence voice behaviour
-- Multi-project / multi-board picker inside Draft
-- Menubar mode (always-on tray icon, no dock)
-- Linux + Windows polish parity with macOS
-
 ## Contributing
 
 PRs are welcome. To keep things smooth:
@@ -323,20 +319,6 @@ PRs are welcome. To keep things smooth:
 6. **Don't commit secrets.** `.env.build` is gitignored — keep it that way.
 
 Commit messages are written in the imperative present (`add hotkey rebind UI`, not `added` or `adding`) and avoid mentioning the tooling that produced them.
-
-## License
-
-[MIT](./LICENSE) © Zenfulfillment GmbH
-
-## Acknowledgements
-
-Standing on the shoulders of:
-
-- [Tauri](https://v2.tauri.app/) — the application framework that makes a 5 MB native binary possible.
-- [Anthropic Claude](https://www.anthropic.com/), [OpenAI](https://openai.com/), and [Google](https://ai.google.dev/) — the model providers behind the drafting.
-- [ElevenLabs](https://elevenlabs.io/) — Scribe v2 Realtime for voice transcription.
-- [Atlassian](https://developer.atlassian.com/cloud/jira/platform/rest/v3/) — REST v3 API and ADF spec.
-- The [Streamdown](https://github.com/anthropic-ai/streamdown), [Sonner](https://sonner.emilkowal.ski/), [Base UI](https://base-ui.com/), and [shadcn/ui](https://ui.shadcn.com/) communities for the UI primitives this app builds on.
 
 <div align="center">
 <sub>Built at <a href="https://zenfulfillment.com">Zenfulfillment</a>.</sub>
