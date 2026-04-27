@@ -33,6 +33,7 @@ Describe what needs to be built. Get a complete, editable Jira draft — title, 
     - [Download a release](#download-a-release)
     - [Homebrew (macOS, planned)](#homebrew-macos-planned)
     - [From source](#from-source)
+    - [macOS — first launch \& Gatekeeper](#macos--first-launch--gatekeeper)
   - [Quick Start](#quick-start)
   - [Configuration](#configuration)
   - [Architecture](#architecture)
@@ -115,6 +116,66 @@ brew install --cask zenful-tickets   # coming soon
 ### From source
 
 See [Building From Source](#building-from-source).
+
+### macOS — first launch & Gatekeeper
+
+> **TL;DR — the first time you open Zenful Tickets, macOS will refuse with a security warning. Open System Settings → Privacy & Security → click "Open Anyway". You only need to do this once.**
+
+Zenful Tickets is currently distributed with **ad-hoc code signing**, not a paid Apple Developer ID. That means macOS Gatekeeper doesn't recognise the developer and will block the first launch. This is a normal step for OSS apps that aren't yet notarized, not a sign that something is wrong. (See Apple's own walkthrough: [Safely open apps on your Mac](https://support.apple.com/en-us/102445).)
+
+#### What you'll see
+
+When you double-click the app the first time, macOS shows a dialog like this:
+
+<p align="center">
+  <img src="docs/assets/gatekeeper/01-cannot-be-opened.png" alt="macOS warning: app cannot be opened because Apple cannot verify it is free of malware" width="420" />
+  <br />
+  <sub><em>Source: <a href="https://support.apple.com/en-us/102445">support.apple.com/en-us/102445</a></em></sub>
+</p>
+
+> _"Zenful Tickets" Not Opened — Apple could not verify "Zenful Tickets" is free of malware that may harm your Mac or compromise your privacy._
+
+Click **Done** — **don't** click *Move to Trash*.
+
+#### How to launch it — System Settings (macOS 13+, recommended)
+
+This is the path Apple now documents:
+
+1. Open **System Settings → Privacy & Security**.
+2. Scroll to the **Security** section. You'll see a line like:
+   > _"Zenful Tickets" was blocked to protect your Mac._
+3. Click **Open Anyway** next to it, then authenticate with Touch ID / your password.
+
+<p align="center">
+  <img src="docs/assets/gatekeeper/03-privacy-security-open-anyway.png" alt="System Settings → Privacy & Security showing the 'Open Anyway' button" width="520" />
+  <br />
+  <sub><em>Source: <a href="https://support.apple.com/en-us/102445">support.apple.com/en-us/102445</a></em></sub>
+</p>
+
+4. The warning prompt reappears one last time with an **Open** button. Click it. macOS now remembers your choice — future launches don't prompt.
+
+#### Alternative — terminal (power users)
+
+```bash
+xattr -d com.apple.quarantine "/Applications/Zenful Tickets.app"
+open "/Applications/Zenful Tickets.app"
+```
+
+The first command strips the quarantine flag macOS attached on download; the second launches the app normally.
+
+#### Alternative — right-click → Open (older macOS only)
+
+On macOS **12 Monterey and earlier**, you can right-click `Zenful Tickets.app` in Finder → **Open**, then click **Open** in the resulting dialog. Apple deprecated this shortcut in macOS 15 Sequoia in favour of the System Settings flow above.
+
+#### About auto-updates
+
+The auto-updater is **separately signed** with our minisign key (independent of Apple's signature) and verifies the integrity of every update before installing it. After you've approved the app once via Privacy & Security, subsequent updates install silently — you don't repeat the Gatekeeper dance per release. (A major macOS version bump may occasionally re-trigger the check.)
+
+#### When will this go away?
+
+When the project moves to a paid **Apple Developer Program** membership and notarized builds, this section becomes irrelevant — the app will launch on first double-click like any other macOS app. Tracked in [`TODO.md`](./TODO.md).
+
+> The same behaviour exists on **Windows** — SmartScreen will show "Windows protected your PC" on first launch. Click **More info → Run anyway**. Linux AppImages are unaffected.
 
 ## Quick Start
 

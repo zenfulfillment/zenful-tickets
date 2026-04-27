@@ -41,8 +41,7 @@
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "entitlements": "entitlements.plist",
-      "signingIdentity": "Apple Development: kpkoester90@gmail.com (NKL833K2BN)"
+      "entitlements": "entitlements.plist"
     }
   },
   "plugins": {
