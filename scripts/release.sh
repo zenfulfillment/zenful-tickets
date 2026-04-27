@@ -68,7 +68,7 @@ step "preflight"
 # stop: a partial work-in-progress shouldn't ride along with a release.
 DIRTY="$(git status --porcelain)"
 if [[ -n "$DIRTY" ]]; then
-  ALLOWED_PATTERN='^(M |MM|A | M)\s+CHANGELOG\.md$'
+  ALLOWED_PATTERN='^(M |MM|A | M)[[:space:]]+CHANGELOG\.md$'
   while IFS= read -r line; do
     if ! [[ "$line" =~ $ALLOWED_PATTERN ]]; then
       die "working tree is dirty — commit or stash first (offender: $line)"
