@@ -41,7 +41,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
@@ -73,7 +73,7 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -87,85 +87,22 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-  # After all matrix builds finish, assemble latest.json from the signature files
-  # the matrix uploaded to the (still-draft) release, then publish it.
-  publish-manifest:
-    name: publish updater manifest
+  # After all matrix builds finish: mirror each platform's primary bundle to a
+  # stable filename (so README download buttons can use a permanent
+  # /releases/latest/download/<name> URL), then promote the draft release.
+  #
+  # We intentionally do NOT generate latest.json ourselves — recent versions of
+  # tauri-action attach a fully-featured latest.json to the draft release with
+  # richer platform keys (darwin-aarch64-app, linux-x86_64-deb/rpm/appimage,
+  # windows-x86_64-nsis/msi, etc.) than our hand-rolled mapping ever covered.
+  finalize-release:
+    name: finalize release (mirror assets + publish)
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Generate latest.json and attach to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          VER="${TAG#v}"
-          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-          mkdir -p sigs
-          # Pull all *.sig assets from the draft release.
-          gh release view "$TAG" --repo "$REPO" --json assets \
-            --jq '.assets[] | select(.name | endswith(".sig")) | .url' \
-            | while read -r url; do
-                gh release download "$TAG" --repo "$REPO" \
-                  --pattern "$(basename "${url%\?*}")" --dir sigs --clobber || true
-              done
-          ls -la sigs/
-
-          # Build latest.json by mapping each .sig back to its bundle URL.
-          python3 - <<'PY' > latest.json
-          import json, os, glob
-          repo = os.environ["REPO"]
-          tag  = os.environ["TAG"]
-          ver  = os.environ["VER"]
-          pub  = os.environ["PUB_DATE"]
-
-          def url_for(name): return f"https://github.com/{repo}/releases/download/{tag}/{name}"
-
-          # (sig filename suffix, platform key, bundle suffix)
-          rules = [
-              ("aarch64.app.tar.gz.sig",          "darwin-aarch64", "aarch64.app.tar.gz"),
-              ("x64.app.tar.gz.sig",              "darwin-x86_64",  "x64.app.tar.gz"),
-              ("x86_64.app.tar.gz.sig",           "darwin-x86_64",  "x86_64.app.tar.gz"),
-              ("amd64.AppImage.sig",              "linux-x86_64",   "amd64.AppImage"),
-              ("AppImage.sig",                    "linux-x86_64",   "AppImage"),
-              ("x64-setup.exe.sig",               "windows-x86_64", "x64-setup.exe"),
-              ("x64_en-US.msi.sig",               "windows-x86_64", "x64_en-US.msi"),
-          ]
-
-          platforms = {}
-          for sigfile in sorted(glob.glob("sigs/*.sig")):
-              name = os.path.basename(sigfile)
-              with open(sigfile) as f:
-                  signature = f.read().strip()
-              for sig_suf, plat, bundle_suf in rules:
-                  if name.endswith(sig_suf) and plat not in platforms:
-                      bundle_name = name[:-len(".sig")]
-                      platforms[plat] = {
-                          "signature": signature,
-                          "url": url_for(bundle_name),
-                      }
-                      break
-
-          out = {
-              "version": ver,
-              "notes": f"See https://github.com/{repo}/releases/tag/{tag}",
-              "pub_date": pub,
-              "platforms": platforms,
-          }
-          print(json.dumps(out, indent=2))
-          PY
-
-          cat latest.json
-          gh release upload "$TAG" latest.json --repo "$REPO" --clobber
-
       # Mirror each platform's primary user-facing bundle under a stable,
       # version-less filename so the README "Download" buttons can link to
       # `releases/latest/download/<stable-name>` and resolve correctly across
