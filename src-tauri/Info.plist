@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Shown by macOS the first time we call navigator.mediaDevices.getUserMedia.
+       Without this key the prompt never appears and getUserMedia silently
+       rejects, which is why voice input fails on first launch. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Zenful Tickets uses your microphone to dictate ticket drafts via ElevenLabs Scribe. Audio is streamed only while you hold the mic button and is never stored.</string>
+</dict>
+</plist>
