@@ -166,6 +166,50 @@ jobs:
           cat latest.json
           gh release upload "$TAG" latest.json --repo "$REPO" --clobber
 
+      # Mirror each platform's primary user-facing bundle under a stable,
+      # version-less filename so the README "Download" buttons can link to
+      # `releases/latest/download/<stable-name>` and resolve correctly across
+      # all future releases. The original versioned bundles (and their .sig
+      # files) remain untouched — the auto-updater still reads them via
+      # latest.json.
+      - name: Mirror per-platform assets to stable filenames
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p mirror
+
+          # Pairs of: <stable name>|<gh release download glob>
+          mirrors=(
+            "Zenful-Tickets-macOS-arm64.dmg|*aarch64.dmg"
+            "Zenful-Tickets-macOS-x64.dmg|*x64.dmg"
+            "Zenful-Tickets-Windows-x64-setup.exe|*x64-setup.exe"
+            "Zenful-Tickets-Linux-x64.AppImage|*amd64.AppImage"
+          )
+
+          for entry in "${mirrors[@]}"; do
+            stable="${entry%%|*}"
+            pattern="${entry#*|}"
+            echo "→ mirroring $pattern → $stable"
+            rm -rf mirror/* || true
+            if ! gh release download "$TAG" --repo "$REPO" \
+                  --pattern "$pattern" --dir mirror --clobber; then
+              echo "  (no asset matched '$pattern', skipping)"
+              continue
+            fi
+            # shellcheck disable=SC2206
+            matches=( mirror/* )
+            if [[ ${#matches[@]} -eq 0 || ! -f "${matches[0]}" ]]; then
+              echo "  (download produced no files, skipping)"
+              continue
+            fi
+            cp "${matches[0]}" "mirror/$stable"
+            gh release upload "$TAG" "mirror/$stable" --repo "$REPO" --clobber
+            echo "  ✓ uploaded $stable"
+          done
+
       - name: Promote release from draft to published
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -18,6 +18,28 @@ Describe what needs to be built. Get a complete, editable Jira draft — title, 
 
 <img src="docs/assets/main-screen.png" alt="Zenful Tickets — What are we shipping today?" width="820" />
 
+<br />
+<br />
+
+### Download the latest release
+
+<p>
+  <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-macOS-arm64.dmg">
+    <img alt="Download for macOS — Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" />
+  </a>
+  <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-macOS-x64.dmg">
+    <img alt="Download for macOS — Intel" src="https://img.shields.io/badge/macOS-Intel%20%28x64%29-555555?style=for-the-badge&logo=apple&logoColor=white" />
+  </a>
+  <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-Windows-x64-setup.exe">
+    <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-x64%20Installer-0078D6?style=for-the-badge&logo=windows&logoColor=white" />
+  </a>
+  <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-Linux-x64.AppImage">
+    <img alt="Download for Linux" src="https://img.shields.io/badge/Linux-AppImage-FCC624?style=for-the-badge&logo=linux&logoColor=black" />
+  </a>
+</p>
+
+<sub>Or browse <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest">all assets on the latest release page</a> (`.msi`, `.deb`, `.tar.gz`, signatures).</sub>
+
 </div>
 
 ---
