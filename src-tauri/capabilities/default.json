@@ -1,0 +1,61 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:app:allow-version",
+    "core:app:allow-name",
+
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+
+    "clipboard-manager:allow-write-text",
+
+    "dialog:allow-open",
+    "dialog:allow-message",
+    "dialog:allow-confirm",
+
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered",
+
+    "log:default",
+
+    "notification:default",
+
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://*.atlassian.net/*" },
+        { "url": "https://id.atlassian.com/*" },
+        { "url": "https://aistudio.google.com/*" },
+        { "url": "https://docs.anthropic.com/*" }
+      ]
+    },
+
+    "os:allow-platform",
+    "os:allow-version",
+    "os:allow-arch",
+    "os:allow-os-type",
+
+    "process:allow-restart",
+    "process:allow-exit",
+
+    "store:default",
+
+    "updater:default",
+
+    "window-state:default"
+  ]
+}

@@ -1,0 +1,174 @@
+name: release
+
+# Builds zenfultickets for macOS (arm64 + x64), Windows (x64), and Linux (x64)
+# using the official `tauri-apps/tauri-action`, signs each artifact, and publishes
+# a GitHub Release with bundles + `latest.json` for the auto-updater.
+#
+# Pattern follows: https://v2.tauri.app/distribute/pipelines/github/
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   TAURI_SIGNING_PRIVATE_KEY            — contents of ~/.tauri/zenfultickets.key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD   — password used at key generation (empty if none)
+#   ELEVENLABS_API_KEY                   — baked into the binary via option_env!
+#
+# The updater public key + endpoint live in src-tauri/tauri.conf.json
+# (plugins.updater.{pubkey,endpoints}). Endpoint is the GitHub Releases
+# `latest/download/latest.json` redirect, so it always points at the newest tag.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }} ${{ matrix.args }})
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          - platform: 'ubuntu-22.04'
+            args: ''
+          - platform: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Zenful Tickets ${{ github.ref_name }}'
+          releaseBody: 'See the assets below to download this version.'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # After all matrix builds finish, assemble latest.json from the signature files
+  # the matrix uploaded to the (still-draft) release, then publish it.
+  publish-manifest:
+    name: publish updater manifest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate latest.json and attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          mkdir -p sigs
+          # Pull all *.sig assets from the draft release.
+          gh release view "$TAG" --repo "$REPO" --json assets \
+            --jq '.assets[] | select(.name | endswith(".sig")) | .url' \
+            | while read -r url; do
+                gh release download "$TAG" --repo "$REPO" \
+                  --pattern "$(basename "${url%\?*}")" --dir sigs --clobber || true
+              done
+          ls -la sigs/
+
+          # Build latest.json by mapping each .sig back to its bundle URL.
+          python3 - <<'PY' > latest.json
+          import json, os, glob
+          repo = os.environ["REPO"]
+          tag  = os.environ["TAG"]
+          ver  = os.environ["VER"]
+          pub  = os.environ["PUB_DATE"]
+
+          def url_for(name): return f"https://github.com/{repo}/releases/download/{tag}/{name}"
+
+          # (sig filename suffix, platform key, bundle suffix)
+          rules = [
+              ("aarch64.app.tar.gz.sig",          "darwin-aarch64", "aarch64.app.tar.gz"),
+              ("x64.app.tar.gz.sig",              "darwin-x86_64",  "x64.app.tar.gz"),
+              ("x86_64.app.tar.gz.sig",           "darwin-x86_64",  "x86_64.app.tar.gz"),
+              ("amd64.AppImage.sig",              "linux-x86_64",   "amd64.AppImage"),
+              ("AppImage.sig",                    "linux-x86_64",   "AppImage"),
+              ("x64-setup.exe.sig",               "windows-x86_64", "x64-setup.exe"),
+              ("x64_en-US.msi.sig",               "windows-x86_64", "x64_en-US.msi"),
+          ]
+
+          platforms = {}
+          for sigfile in sorted(glob.glob("sigs/*.sig")):
+              name = os.path.basename(sigfile)
+              with open(sigfile) as f:
+                  signature = f.read().strip()
+              for sig_suf, plat, bundle_suf in rules:
+                  if name.endswith(sig_suf) and plat not in platforms:
+                      bundle_name = name[:-len(".sig")]
+                      platforms[plat] = {
+                          "signature": signature,
+                          "url": url_for(bundle_name),
+                      }
+                      break
+
+          out = {
+              "version": ver,
+              "notes": f"See https://github.com/{repo}/releases/tag/{tag}",
+              "pub_date": pub,
+              "platforms": platforms,
+          }
+          print(json.dumps(out, indent=2))
+          PY
+
+          cat latest.json
+          gh release upload "$TAG" latest.json --repo "$REPO" --clobber
+
+      - name: Promote release from draft to published
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: gh release edit "$TAG" --repo "$REPO" --draft=false
