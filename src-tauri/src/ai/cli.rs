@@ -25,6 +25,29 @@ use tokio::sync::{mpsc, oneshot};
 // paths first so a `~/.npm-global/claude` wins over a stale system-wide one.
 // ─────────────────────────────────────────────────────────────
 
+// On Windows, child processes spawned from a GUI app inherit `CREATE_NEW_CONSOLE`
+// behavior — `CreateProcess` allocates a fresh console window for any child that
+// doesn't already have one. For our background CLI calls (`claude --version`,
+// `claude -p …`, `codex exec`) that surfaces a visible terminal flashing in
+// front of the app for the duration of the request. Setting `CREATE_NO_WINDOW`
+// (0x0800_0000) tells Windows to launch the process without a console at all,
+// while keeping our piped stdin/stdout/stderr fully functional.
+//
+// This flag must NOT be applied to the interactive login spawns (wt.exe / cmd /
+// powershell in `ai_open_login`) — those rely on a real console to host the
+// user's auth flow.
+//
+// On non-Windows platforms this is a no-op.
+fn apply_no_window(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = cmd;
+}
+
 fn augmented_path() -> String {
     let home = std::env::var("HOME").ok().map(PathBuf::from);
     let mut extras: Vec<PathBuf> = Vec::new();
@@ -119,11 +142,14 @@ pub async fn probe_cli(cli: &str) -> CliStatus {
     let Some(path) = which::which_in(cli, Some(&path_env), &cwd).ok() else {
         return CliStatus { available: false, path: None, version: None };
     };
-    let version = Command::new(&path)
+    let mut probe = Command::new(&path);
+    probe
         .arg("--version")
         .env("PATH", &path_env)
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    apply_no_window(&mut probe);
+    let version = probe
         .output()
         .await
         .ok()
@@ -158,7 +184,17 @@ impl Cli {
     /// Build the argv for non-interactive streaming. Both CLIs read from stdin
     /// and print the response to stdout. `model` is the per-provider model
     /// id the user picked in the model selector (None → CLI default).
-    pub fn argv(&self, system_prompt: &str, model: Option<&str>) -> Vec<String> {
+    ///
+    /// `image_paths` is forwarded as one `--image <path>` flag per entry on
+    /// Claude (which natively accepts images and PDFs through that flag).
+    /// Codex has no equivalent today, so the slice is ignored — the caller
+    /// is expected to have surfaced a "Codex won't see images" warning.
+    pub fn argv(
+        &self,
+        system_prompt: &str,
+        model: Option<&str>,
+        image_paths: &[std::path::PathBuf],
+    ) -> Vec<String> {
         match self {
             // `claude -p <prompt>` prints the response and exits.
             //
@@ -186,6 +222,15 @@ impl Cli {
                 if let Some(m) = model.map(str::trim).filter(|s| !s.is_empty()) {
                     v.push("--model".into());
                     v.push(m.to_string());
+                }
+                // Vision attachments. The Claude CLI accepts repeated
+                // `--image <path>` flags for image and PDF files; the model
+                // is invoked with multimodal context for each. We pass
+                // absolute paths so the CLI doesn't try to resolve against
+                // its own CWD (which differs between dev and bundled run).
+                for p in image_paths {
+                    v.push("--image".into());
+                    v.push(p.to_string_lossy().into_owned());
                 }
                 v
             }
@@ -359,11 +404,12 @@ pub async fn stream(
     system_prompt: String,
     user_prompt: String,
     model: Option<String>,
+    image_paths: Vec<PathBuf>,
     chunks_tx: mpsc::Sender<StreamChunk>,
     cancel_rx: oneshot::Receiver<()>,
 ) -> AppResult<()> {
     let binary = cli.binary();
-    let argv = cli.argv(&system_prompt, model.as_deref());
+    let argv = cli.argv(&system_prompt, model.as_deref(), &image_paths);
     let path_env = augmented_path();
 
     let mut cmd = Command::new(binary);
@@ -372,6 +418,7 @@ pub async fn stream(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    apply_no_window(&mut cmd);
 
     let mut child = cmd
         .spawn()

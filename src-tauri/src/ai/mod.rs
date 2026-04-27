@@ -12,10 +12,12 @@ pub mod cli;
 pub mod gemini;
 pub mod prompt;
 
+use crate::attachments::{self, AttachmentKind, ResolvedAttachment};
 use crate::error::{AppError, AppResult};
 use crate::secrets;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::{mpsc, oneshot};
 
@@ -52,6 +54,13 @@ pub struct DraftRequest {
     /// → provider default.
     #[serde(default)]
     pub model: Option<String>,
+    /// Attachment ids previously registered via `attachment_register_*`.
+    /// Resolved server-side at request time so the webview never sees a
+    /// path. Each id maps to a file in the per-session cache dir; the
+    /// extracted text + image bytes are routed per-provider (see
+    /// `route_attachments`).
+    #[serde(default)]
+    pub attachment_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -119,6 +128,11 @@ pub struct ExpandSubtasksRequest {
     /// expansion uses the same model the user picked for the main draft.
     #[serde(default)]
     pub model: Option<String>,
+    /// Same as `DraftRequest.attachment_ids`. The expansion call is small
+    /// and structured, so attachments rarely add value here — but for
+    /// consistency with the main draft we plumb them through too.
+    #[serde(default)]
+    pub attachment_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -192,22 +206,42 @@ pub async fn ai_draft(
         req.tone.as_deref().unwrap_or("balanced"),
         req.custom_system_prompt.as_deref(),
     );
-    let user = prompt::build_user_prompt(&req.prompt, req.refine_of.as_deref());
+    let base_user = prompt::build_user_prompt(&req.prompt, req.refine_of.as_deref());
+
+    // Resolve attachments from the registry, then route per provider — see
+    // `route_attachments` for the matrix. The text payload (xlsx/csv/pdf
+    // bodies, etc.) is appended to the user prompt regardless of provider;
+    // images and PDFs go through provider-specific channels.
+    let resolved = attachments::resolve_many(&state.attachments, &req.attachment_ids);
+    let route = route_attachments(req.provider, &resolved);
+    log::info!(
+        "ai_draft attachments: total={} routed_images={} routed_inline={} text_chars={}",
+        resolved.len(),
+        route.image_paths.len(),
+        route.inline_attachments.len(),
+        route.text_payload.as_ref().map(|t| t.len()).unwrap_or(0)
+    );
+    let user = match route.text_payload {
+        Some(suffix) => format!("{base_user}{suffix}"),
+        None => base_user,
+    };
 
     // Spawn the provider pipeline.
     let http = state.http.clone();
     let provider = req.provider;
     let model = req.model.clone();
+    let image_paths = route.image_paths;
+    let inline_attachments = route.inline_attachments;
     let backend = tokio::spawn(async move {
         match provider {
-            Provider::ClaudeCli => cli::stream(cli::Cli::Claude, system, user, model, chunks_tx, cancel_rx).await,
-            Provider::CodexCli => cli::stream(cli::Cli::Codex, system, user, model, chunks_tx, cancel_rx).await,
+            Provider::ClaudeCli => cli::stream(cli::Cli::Claude, system, user, model, image_paths, chunks_tx, cancel_rx).await,
+            Provider::CodexCli => cli::stream(cli::Cli::Codex, system, user, model, Vec::new(), chunks_tx, cancel_rx).await,
             Provider::Gemini => {
                 let key = secrets::load()
                     .ok()
                     .and_then(|s| s.gemini_key)
                     .ok_or_else(|| AppError::Ai("gemini API key not set".into()))?;
-                gemini::stream(http, key, system, user, model, chunks_tx, cancel_rx).await
+                gemini::stream(http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
             }
         }
     });
@@ -306,11 +340,18 @@ pub async fn ai_expand_subtasks(
         &req.mode,
         req.custom_system_prompt.as_deref(),
     );
-    let user = prompt::build_subtask_expansion_user_prompt(
+    let base_user = prompt::build_subtask_expansion_user_prompt(
         &req.parent_title,
         &req.parent_body_markdown,
         &req.subtask_titles,
     );
+
+    let resolved = attachments::resolve_many(&state.attachments, &req.attachment_ids);
+    let route = route_attachments(req.provider, &resolved);
+    let user = match route.text_payload {
+        Some(suffix) => format!("{base_user}{suffix}"),
+        None => base_user,
+    };
 
     // Reuse the existing streaming providers but accumulate the full
     // response. The expansion call is small (a few hundred tokens) so
@@ -321,16 +362,18 @@ pub async fn ai_expand_subtasks(
     let http = state.http.clone();
     let provider = req.provider;
     let model = req.model.clone();
+    let image_paths = route.image_paths;
+    let inline_attachments = route.inline_attachments;
     let backend = tokio::spawn(async move {
         match provider {
-            Provider::ClaudeCli => cli::stream(cli::Cli::Claude, system, user, model, chunks_tx, cancel_rx).await,
-            Provider::CodexCli => cli::stream(cli::Cli::Codex, system, user, model, chunks_tx, cancel_rx).await,
+            Provider::ClaudeCli => cli::stream(cli::Cli::Claude, system, user, model, image_paths, chunks_tx, cancel_rx).await,
+            Provider::CodexCli => cli::stream(cli::Cli::Codex, system, user, model, Vec::new(), chunks_tx, cancel_rx).await,
             Provider::Gemini => {
                 let key = secrets::load()
                     .ok()
                     .and_then(|s| s.gemini_key)
                     .ok_or_else(|| AppError::Ai("gemini API key not set".into()))?;
-                gemini::stream(http, key, system, user, model, chunks_tx, cancel_rx).await
+                gemini::stream(http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
             }
         }
     });
@@ -406,6 +449,59 @@ pub async fn ai_cancel(state: State<'_, AppState>, request_id: String) -> AppRes
 #[tauri::command]
 pub async fn ai_open_login(provider: String) -> AppResult<()> {
     cli::open_login_terminal(&provider)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Per-provider attachment routing
+// ─────────────────────────────────────────────────────────────
+
+/// Routed attachments grouped by how they should be delivered to the active
+/// provider. Each provider consumes a different subset:
+///
+/// | Provider     | image_paths    | inline_attachments | text_payload  |
+/// |--------------|----------------|--------------------|---------------|
+/// | Claude CLI   | --image flags  | unused             | prompt suffix |
+/// | Codex CLI    | unused (skip)  | unused             | prompt suffix |
+/// | Gemini API   | unused         | inline_data parts  | prompt suffix |
+///
+/// `text_payload` is the same `[ATTACHED FILES]` block for all providers —
+/// document extraction (xlsx → markdown table, pdf → text, etc) is
+/// identical regardless of who sees it. Images are the only thing routed
+/// asymmetrically because vision support varies.
+struct AttachmentRoute {
+    /// Image / pdf paths fed to Claude as repeated `--image <path>` flags.
+    image_paths: Vec<PathBuf>,
+    /// Image / pdf records fed to Gemini as `inline_data` parts.
+    inline_attachments: Vec<ResolvedAttachment>,
+    /// Text trailer appended to the user prompt — None when no attachment
+    /// produced extractable text.
+    text_payload: Option<String>,
+}
+
+fn route_attachments(provider: Provider, resolved: &[ResolvedAttachment]) -> AttachmentRoute {
+    let text_payload = attachments::build_text_payload(resolved);
+
+    let mut image_paths: Vec<PathBuf> = Vec::new();
+    let mut inline_attachments: Vec<ResolvedAttachment> = Vec::new();
+
+    for a in resolved {
+        let visual = matches!(a.r#ref.kind, AttachmentKind::Image | AttachmentKind::Pdf);
+        if !visual {
+            continue;
+        }
+        match provider {
+            Provider::ClaudeCli => image_paths.push(a.path.clone()),
+            // Codex has no vision today — the frontend's image-attached
+            // warning toast (see Main.tsx) tells the user the image will be
+            // skipped. We honour that contract here by not even mentioning
+            // the image to the model. Document extraction still flows
+            // through `text_payload` so non-image attachments remain useful.
+            Provider::CodexCli => {}
+            Provider::Gemini => inline_attachments.push(a.clone()),
+        }
+    }
+
+    AttachmentRoute { image_paths, inline_attachments, text_payload }
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -66,6 +66,36 @@ export interface JiraEpic {
   summary: string;
 }
 
+/**
+ * Per-draft attachment metadata. Mirrors the Rust `AttachmentRef` struct.
+ *
+ * The frontend never touches absolute paths — only this opaque record. All
+ * file operations (read, remove, purge) go through Tauri commands that
+ * resolve `id` to an on-disk path internally. This keeps the webview's
+ * filesystem surface area at zero.
+ */
+export type AttachmentKind =
+  | "image"
+  | "pdf"
+  | "spreadsheet"
+  | "document"
+  | "csv"
+  | "text"
+  | "unsupported";
+
+export interface AttachmentRef {
+  id: string;
+  session_id: string;
+  filename: string;
+  size_bytes: number;
+  mime: string;
+  kind: AttachmentKind;
+  /** Extracted character count. 0 for images. */
+  extracted_chars: number;
+  /** Inline data URL preview for image attachments under 512 KB. */
+  preview_data_url?: string | null;
+}
+
 export interface CreateIssueResponse {
   id: string;
   key: string;
