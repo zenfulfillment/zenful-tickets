@@ -12,7 +12,7 @@ Describe what needs to be built. Get a complete, editable Jira draft — title, 
 [![Rust](https://img.shields.io/badge/Rust-stable-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![macOS](https://img.shields.io/badge/macOS-11+-000000?logo=apple&logoColor=white)](#installation)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
-[![Release](https://img.shields.io/github/v/release/zenfulfillment/zenfultickets?include_prereleases&sort=semver)](https://github.com/zenfulfillment/zenfultickets/releases)
+[![Release](https://img.shields.io/github/v/release/zenfulfillment/zenful-tickets?include_prereleases&sort=semver)](https://github.com/zenfulfillment/zenful-tickets/releases)
 
 <br />
 
@@ -104,12 +104,12 @@ It speaks to your existing AI tooling: the **Claude Code** and **Codex** CLIs yo
 
 ### Download a release
 
-Pre-built signed binaries for macOS (Apple Silicon + Intel), Linux (x64 AppImage), and Windows (x64 MSI/EXE) are published to the [Releases page](https://github.com/zenfulfillment/zenfultickets/releases). The app self-updates from there.
+Pre-built signed binaries for macOS (Apple Silicon + Intel), Linux (x64 AppImage), and Windows (x64 MSI/EXE) are published to the [Releases page](https://github.com/zenfulfillment/zenful-tickets/releases). The app self-updates from there.
 
 ### Homebrew (macOS, planned)
 
 ```bash
-brew install --cask zenfultickets   # coming soon
+brew install --cask zenful-tickets   # coming soon
 ```
 
 ### From source
@@ -163,7 +163,7 @@ CSP is set in `src-tauri/tauri.conf.json` and is **not** `null` in production �
 ## Project Structure
 
 ```
-zenfultickets/
+zenful-tickets/
 ├── src/                         # React frontend
 │   ├── App.tsx                  # screen switcher + global lifecycle
 │   ├── main.tsx

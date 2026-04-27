@@ -49,7 +49,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUwQTQ2Q0EzNzMyOTA1QkQKUldTOUJTbHpvMnlrVVA2alFBUzhUV3prcnYwNnpJT2UzSG01SWFwOUI2SGtmVHhzaEgwWGRDVHoK",
       "endpoints": [
-        "https://github.com/zenfulfillment/zenfultickets/releases/latest/download/latest.json"
+        "https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/latest.json"
       ]
     }
   }
