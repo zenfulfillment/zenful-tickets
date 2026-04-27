@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Copy,
   Edit3,
   ExternalLink,
   Flag,
@@ -66,6 +67,7 @@ export const Icon = {
     return <Comp size={size ?? 12} strokeWidth={STROKE + 0.2} />;
   },
   Check: wrap(Check, 14),
+  Copy: wrap(Copy, 14),
   External: wrap(ExternalLink, 12),
   Sparkle: wrap(Sparkles, 14),
   Tag: wrap(Tag, 14),

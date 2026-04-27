@@ -29,6 +29,8 @@ import {
 import { useAppStore } from "../store";
 import { DEFAULT_SETTINGS, MODELS, type AppSettings, type DetectResult, type JiraProject, type Provider } from "../types";
 import { secretStoreName } from "../lib/platform";
+import { describeError, parseAppError } from "../lib/errors";
+import { notify } from "../lib/notify";
 import { playUi } from "../lib/ui-sounds";
 import { isProviderConfigured, PROVIDERS } from "../lib/providers";
 
@@ -297,7 +299,9 @@ function JiraSection() {
       const u = await jiraVerify();
       setUser(u);
       setTestStatus("ok");
-    } catch {
+    } catch (e) {
+      const display = describeError(parseAppError(e), "jira-test");
+      notify(display.headline, { kind: "error", description: display.description });
       setTestStatus("fail");
     } finally {
       setTesting(false);
@@ -306,7 +310,13 @@ function JiraSection() {
 
   const rotateToken = async () => {
     if (!tokenInput.trim()) { setEditingToken(false); return; }
-    await secretsUpdate({ jira_token: tokenInput.trim() });
+    try {
+      await secretsUpdate({ jira_token: tokenInput.trim() });
+    } catch (e) {
+      const display = describeError(parseAppError(e), "jira-setup");
+      notify(display.headline, { kind: "error", description: display.description });
+      return;
+    }
     setTokenInput("");
     setEditingToken(false);
     await refreshSecrets();
