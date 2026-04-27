@@ -127,33 +127,58 @@ jobs:
           mkdir -p mirror
 
           # Pairs of: <stable name>|<gh release download glob>
-          mirrors=(
+          # Every entry in this list MUST resolve — a missing pattern means a
+          # platform build job didn't upload its bundle, which is a hard
+          # release failure (we don't want the auto-updater to ship a release
+          # that's missing platforms). Genuinely platform-skipped entries
+          # belong in `optional_mirrors` below.
+          required_mirrors=(
             "Zenful-Tickets-macOS-arm64.dmg|*aarch64.dmg"
             "Zenful-Tickets-macOS-x64.dmg|*x64.dmg"
             "Zenful-Tickets-Windows-x64-setup.exe|*x64-setup.exe"
             "Zenful-Tickets-Linux-x64.AppImage|*amd64.AppImage"
           )
 
-          for entry in "${mirrors[@]}"; do
+          # Print what's actually on the release up front. Makes failures
+          # diagnosable without needing to re-trigger the workflow.
+          echo "── Release assets currently attached to $TAG ──"
+          gh release view "$TAG" --repo "$REPO" --json assets \
+            --jq '.assets[].name' | sed 's/^/  • /'
+          echo "──────────────────────────────────────────────"
+
+          missing=()
+          for entry in "${required_mirrors[@]}"; do
             stable="${entry%%|*}"
             pattern="${entry#*|}"
             echo "→ mirroring $pattern → $stable"
             rm -rf mirror/* || true
             if ! gh release download "$TAG" --repo "$REPO" \
-                  --pattern "$pattern" --dir mirror --clobber; then
-              echo "  (no asset matched '$pattern', skipping)"
+                  --pattern "$pattern" --dir mirror --clobber 2>/dev/null; then
+              echo "  ✗ no asset matched '$pattern'"
+              missing+=("$stable ($pattern)")
               continue
             fi
             # shellcheck disable=SC2206
             matches=( mirror/* )
             if [[ ${#matches[@]} -eq 0 || ! -f "${matches[0]}" ]]; then
-              echo "  (download produced no files, skipping)"
+              echo "  ✗ download produced no files for '$pattern'"
+              missing+=("$stable ($pattern)")
               continue
             fi
             cp "${matches[0]}" "mirror/$stable"
             gh release upload "$TAG" "mirror/$stable" --repo "$REPO" --clobber
             echo "  ✓ uploaded $stable"
           done
+
+          if (( ${#missing[@]} > 0 )); then
+            echo
+            echo "❌ Release is incomplete — the following platform bundles never landed:"
+            for m in "${missing[@]}"; do echo "   • $m"; done
+            echo
+            echo "Fix the failing matrix build (or remove the entry from required_mirrors)"
+            echo "before promoting the release."
+            exit 1
+          fi
 
       - name: Promote release from draft to published
         env:
