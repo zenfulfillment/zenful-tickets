@@ -37,7 +37,17 @@ tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
 
 # Non-Tauri crates
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# keyring backends per-platform.
+#  - apple-native       → macOS Keychain (Security framework)
+#  - windows-native     → Windows Credential Manager (wincred)
+#  - sync-secret-service → Linux Secret Service via pure-Rust zbus (gnome-keyring / KWallet)
+#
+# `sync-secret-service` REQUIRES a crypto backend feature (`crypto-rust` or
+# `crypto-openssl`) — the Secret Service protocol negotiates an encrypted
+# session, so the keyring crate refuses to compile without one. We pick
+# `crypto-rust` (pure-Rust RustCrypto stack) over `crypto-openssl` to avoid a
+# system libssl-dev dep on Linux CI runners.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "io-util", "sync", "time", "fs"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
