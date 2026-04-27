@@ -40,8 +40,12 @@ export const ModelSelectorContent = ({
   title = "Model Selector",
   ...props
 }: ModelSelectorContentProps) => (
+  // showCloseButton={false}: the model picker is dense and the floating X
+  // sits awkwardly over the search input. Esc and click-outside both still
+  // close the dialog, which is enough.
   <DialogContent
     aria-describedby={undefined}
+    showCloseButton={false}
     className={cn(
       "outline! border-none! p-0 outline-border! outline-solid!",
       className
