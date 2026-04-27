@@ -10,12 +10,14 @@
 
 pub mod cli;
 pub mod gemini;
+pub mod openrouter;
+pub mod openrouter_models;
 pub mod prompt;
 
 use crate::attachments::{self, AttachmentKind, ResolvedAttachment};
 use crate::error::{AppError, AppResult};
 use crate::secrets;
-use crate::state::AppState;
+use crate::state::{self, AppState};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, State};
@@ -33,6 +35,7 @@ pub enum Provider {
     ClaudeCli,
     CodexCli,
     Gemini,
+    OpenRouter,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,6 +235,7 @@ pub async fn ai_draft(
     let model = req.model.clone();
     let image_paths = route.image_paths;
     let inline_attachments = route.inline_attachments;
+    let app_for_or = app.clone();
     let backend = tokio::spawn(async move {
         match provider {
             Provider::ClaudeCli => cli::stream(cli::Cli::Claude, system, user, model, image_paths, chunks_tx, cancel_rx).await,
@@ -242,6 +246,13 @@ pub async fn ai_draft(
                     .and_then(|s| s.gemini_key)
                     .ok_or_else(|| AppError::Ai("gemini API key not set".into()))?;
                 gemini::stream(http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
+            }
+            Provider::OpenRouter => {
+                let key = secrets::load()
+                    .ok()
+                    .and_then(|s| s.openrouter_key)
+                    .ok_or_else(|| AppError::Ai("openrouter API key not set".into()))?;
+                openrouter::stream(app_for_or, http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
             }
         }
     });
@@ -364,6 +375,10 @@ pub async fn ai_expand_subtasks(
     let model = req.model.clone();
     let image_paths = route.image_paths;
     let inline_attachments = route.inline_attachments;
+    let app_for_or = state::APP
+        .get()
+        .cloned()
+        .ok_or_else(|| AppError::Other("app handle not initialized".into()))?;
     let backend = tokio::spawn(async move {
         match provider {
             Provider::ClaudeCli => cli::stream(cli::Cli::Claude, system, user, model, image_paths, chunks_tx, cancel_rx).await,
@@ -374,6 +389,13 @@ pub async fn ai_expand_subtasks(
                     .and_then(|s| s.gemini_key)
                     .ok_or_else(|| AppError::Ai("gemini API key not set".into()))?;
                 gemini::stream(http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
+            }
+            Provider::OpenRouter => {
+                let key = secrets::load()
+                    .ok()
+                    .and_then(|s| s.openrouter_key)
+                    .ok_or_else(|| AppError::Ai("openrouter API key not set".into()))?;
+                openrouter::stream(app_for_or, http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
             }
         }
     });
@@ -497,7 +519,12 @@ fn route_attachments(provider: Provider, resolved: &[ResolvedAttachment]) -> Att
             // the image to the model. Document extraction still flows
             // through `text_payload` so non-image attachments remain useful.
             Provider::CodexCli => {}
-            Provider::Gemini => inline_attachments.push(a.clone()),
+            // Gemini and OpenRouter both consume `inline_attachments` —
+            // their respective `stream` modules each translate the records
+            // into the right multimodal part shape (Gemini `inline_data`
+            // vs OpenRouter `image_url` / `file`). OpenRouter additionally
+            // gates images on the chosen model's `input_modalities`.
+            Provider::Gemini | Provider::OpenRouter => inline_attachments.push(a.clone()),
         }
     }
 

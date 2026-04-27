@@ -356,6 +356,15 @@ pub fn run() {
             // Sweep any attachment session directories that haven't been touched
             // in 24h — best-effort, swallows errors. See attachments::sweep_stale.
             attachments::sweep_stale(app.handle());
+
+            // Refresh the OpenRouter catalog in the background if the user
+            // has a key configured. Picker reads from disk cache instantly
+            // and hot-swaps via `openrouter:catalog:updated` when this lands.
+            if let Ok(s) = secrets::load() {
+                if s.openrouter_key.as_deref().is_some_and(|t| !t.is_empty()) {
+                    ai::openrouter_models::refresh_in_background(app.handle().clone());
+                }
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -395,6 +404,8 @@ pub fn run() {
             ai::ai_expand_subtasks,
             ai::ai_cancel,
             ai::ai_open_login,
+            ai::openrouter_models::openrouter_models_get,
+            ai::openrouter_models::openrouter_models_refresh,
             // voice
             speech::speech_start,
             speech::speech_stop,

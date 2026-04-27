@@ -22,6 +22,8 @@ pub struct Secrets {
     pub anthropic_key: Option<String>,
     #[serde(default)]
     pub openai_key: Option<String>,
+    #[serde(default)]
+    pub openrouter_key: Option<String>,
 }
 
 fn entry() -> AppResult<Entry> {
@@ -62,7 +64,7 @@ pub fn update(patch: Secrets) -> AppResult<Secrets> {
             )*
         };
     }
-    apply!(jira_site, jira_email, jira_token, gemini_key, anthropic_key, openai_key);
+    apply!(jira_site, jira_email, jira_token, gemini_key, anthropic_key, openai_key, openrouter_key);
     save(&current)?;
     Ok(current)
 }
@@ -77,6 +79,7 @@ pub struct SecretsStatus {
     pub has_gemini_key: bool,
     pub has_anthropic_key: bool,
     pub has_openai_key: bool,
+    pub has_openrouter_key: bool,
 }
 
 impl From<&Secrets> for SecretsStatus {
@@ -88,6 +91,7 @@ impl From<&Secrets> for SecretsStatus {
             has_gemini_key: s.gemini_key.as_deref().is_some_and(|t| !t.is_empty()),
             has_anthropic_key: s.anthropic_key.as_deref().is_some_and(|t| !t.is_empty()),
             has_openai_key: s.openai_key.as_deref().is_some_and(|t| !t.is_empty()),
+            has_openrouter_key: s.openrouter_key.as_deref().is_some_and(|t| !t.is_empty()),
         }
     }
 }
