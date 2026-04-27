@@ -14,6 +14,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+// `navigator.mediaDevices` is undefined in some webview contexts (notably
+// macOS WKWebView when `app.macOSPrivateApi` is off). Guard every access so
+// rendering the picker never throws — without this guard a single `undefined`
+// dereference inside a useEffect crashes the whole React subtree (manifests
+// as the Settings → Drafting white screen).
+const mediaDevices = (): MediaDevices | null =>
+  typeof navigator !== "undefined" && navigator.mediaDevices
+    ? navigator.mediaDevices
+    : null;
+
+const UNSUPPORTED_MSG =
+  "Microphone access isn't available in this build. Update the app to the latest version.";
+
 export const useAudioDevices = () => {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -21,10 +34,16 @@ export const useAudioDevices = () => {
   const [hasPermission, setHasPermission] = useState(false);
 
   const loadDevicesWithoutPermission = useCallback(async () => {
+    const md = mediaDevices();
+    if (!md) {
+      setError(UNSUPPORTED_MSG);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      const list = await navigator.mediaDevices.enumerateDevices();
+      const list = await md.enumerateDevices();
       setDevices(list.filter((d) => d.kind === "audioinput"));
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to get audio devices";
@@ -36,14 +55,20 @@ export const useAudioDevices = () => {
 
   const loadDevicesWithPermission = useCallback(async () => {
     if (loading) return;
+    const md = mediaDevices();
+    if (!md) {
+      setError(UNSUPPORTED_MSG);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
-      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const tempStream = await md.getUserMedia({ audio: true });
       // Permission granted; immediately stop the temp tracks — we just
       // wanted enumerateDevices() to start returning real labels.
       for (const t of tempStream.getTracks()) t.stop();
-      const list = await navigator.mediaDevices.enumerateDevices();
+      const list = await md.enumerateDevices();
       setDevices(list.filter((d) => d.kind === "audioinput"));
       setHasPermission(true);
     } catch (e) {
@@ -59,12 +84,14 @@ export const useAudioDevices = () => {
   }, [loadDevicesWithoutPermission]);
 
   useEffect(() => {
+    const md = mediaDevices();
+    if (!md) return;
     const onChange = () => {
       if (hasPermission) void loadDevicesWithPermission();
       else void loadDevicesWithoutPermission();
     };
-    navigator.mediaDevices.addEventListener("devicechange", onChange);
-    return () => navigator.mediaDevices.removeEventListener("devicechange", onChange);
+    md.addEventListener("devicechange", onChange);
+    return () => md.removeEventListener("devicechange", onChange);
   }, [hasPermission, loadDevicesWithPermission, loadDevicesWithoutPermission]);
 
   return {

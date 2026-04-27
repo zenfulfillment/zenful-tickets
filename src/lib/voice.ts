@@ -44,6 +44,17 @@ export interface VoiceSession {
 }
 
 export async function startVoice(opts?: { deviceId?: string | null }): Promise<VoiceSession> {
+  // Bail with a clear, user-actionable error before touching any IPC if the
+  // webview doesn't expose getUserMedia (macOS WKWebView without
+  // macOSPrivateApi enabled, or older Tauri builds). The previous code threw
+  // "undefined is not an object (evaluating 'navigator.mediaDevices…')" which
+  // is hostile to users.
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error(
+      "Microphone access isn't available in this build. Update the app to the latest version, then re-grant microphone permission in System Settings → Privacy & Security → Microphone.",
+    );
+  }
+
   await speechStart();
 
   const level = { current: 0 };

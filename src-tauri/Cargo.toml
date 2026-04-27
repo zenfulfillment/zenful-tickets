@@ -1,6 +1,6 @@
 [package]
 name = "zenfultickets"
-version = "0.1.4"
+version = "0.1.5"
 description = "Zenful Tickets — AI-assisted Jira ticket drafter"
 authors = ["Kevin Koester <kevin.koester@zenfulfillment.com>"]
 edition = "2021"
@@ -14,7 +14,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # Core
-tauri = { version = "2", features = [] }
+# `macos-private-api`: required so WKWebView exposes navigator.mediaDevices
+# (getUserMedia / enumerateDevices) for the voice input + MicSelector. Without
+# this feature + tauri.conf.json's app.macOSPrivateApi=true, mediaDevices is
+# undefined in production builds and any code path touching it throws.
+tauri = { version = "2", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

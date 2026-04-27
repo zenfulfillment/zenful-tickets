@@ -27,6 +27,28 @@
   --border-strong: rgba(0, 0, 0, 0.14);
   --border-input: rgba(0, 0, 0, 0.08);
 
+  /* Semantic status palette — used by toasts, inline alerts, and any
+     surface that needs to signal danger / warning / success without being
+     a primary action. Each tier exposes:
+       <name>        → solid hue (icons, accent stripes)
+       <name>-fg     → text color tuned for AA contrast on -bg
+       <name>-bg     → subtle tinted surface (light alpha over fg)
+       <name>-border → matched border tint */
+  --danger: #ff3b30;
+  --danger-fg: #b8170f;
+  --danger-bg: rgba(255, 59, 48, 0.10);
+  --danger-border: rgba(255, 59, 48, 0.32);
+
+  --warning: #ff9500;
+  --warning-fg: #a25c00;
+  --warning-bg: rgba(255, 149, 0, 0.12);
+  --warning-border: rgba(255, 149, 0, 0.36);
+
+  --success: #30d158;
+  --success-fg: #176c2c;
+  --success-bg: rgba(48, 209, 88, 0.10);
+  --success-border: rgba(48, 209, 88, 0.34);
+
   --shadow-window: 0 0 0 0.5px rgba(0,0,0,0.18), 0 24px 60px rgba(0,0,0,0.22), 0 8px 16px rgba(0,0,0,0.12);
   --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 4px 14px rgba(0,0,0,0.06);
   --shadow-elevated: 0 8px 32px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.05);
@@ -68,6 +90,24 @@
 
     --accent-soft: rgba(10, 132, 255, 0.18);
 
+    /* Status palette — dark variants. Foregrounds are lighter and the
+       tinted surfaces use higher alpha so the colour reads on the dim
+       glass-card background. */
+    --danger: #ff453a;
+    --danger-fg: #ff7066;
+    --danger-bg: rgba(255, 69, 58, 0.16);
+    --danger-border: rgba(255, 69, 58, 0.40);
+
+    --warning: #ff9f0a;
+    --warning-fg: #ffb84d;
+    --warning-bg: rgba(255, 159, 10, 0.16);
+    --warning-border: rgba(255, 159, 10, 0.40);
+
+    --success: #30d158;
+    --success-fg: #6eed8c;
+    --success-bg: rgba(48, 209, 88, 0.16);
+    --success-border: rgba(48, 209, 88, 0.36);
+
     color-scheme: dark;
   }
 }
@@ -98,6 +138,21 @@
   --shadow-elevated: 0 8px 32px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.05);
 
   --accent-soft: rgba(10, 132, 255, 0.12);
+
+  --danger: #ff3b30;
+  --danger-fg: #b8170f;
+  --danger-bg: rgba(255, 59, 48, 0.10);
+  --danger-border: rgba(255, 59, 48, 0.32);
+
+  --warning: #ff9500;
+  --warning-fg: #a25c00;
+  --warning-bg: rgba(255, 149, 0, 0.12);
+  --warning-border: rgba(255, 149, 0, 0.36);
+
+  --success: #30d158;
+  --success-fg: #176c2c;
+  --success-bg: rgba(48, 209, 88, 0.10);
+  --success-border: rgba(48, 209, 88, 0.34);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -118,6 +173,21 @@
   --shadow-card: 0 1px 2px rgba(0,0,0,0.3), 0 4px 14px rgba(0,0,0,0.25);
   --shadow-elevated: 0 8px 32px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.3);
   --accent-soft: rgba(10, 132, 255, 0.18);
+
+  --danger: #ff453a;
+  --danger-fg: #ff7066;
+  --danger-bg: rgba(255, 69, 58, 0.16);
+  --danger-border: rgba(255, 69, 58, 0.40);
+
+  --warning: #ff9f0a;
+  --warning-fg: #ffb84d;
+  --warning-bg: rgba(255, 159, 10, 0.16);
+  --warning-border: rgba(255, 159, 10, 0.40);
+
+  --success: #30d158;
+  --success-fg: #6eed8c;
+  --success-bg: rgba(48, 209, 88, 0.16);
+  --success-border: rgba(48, 209, 88, 0.36);
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -891,5 +961,103 @@ a:hover { text-decoration: underline; }
   background: var(--bg-card);
   font-weight: 600;
   color: var(--fg-muted);
+}
+
+/* ──────────────────────────────────────────────────────────
+   Toast (sonner) — type-aware visual treatment.
+   The --normal-/--success-/--error-/--warning-/--info-* CSS variables are
+   set on the Toaster element (see components/ui/sonner.tsx) and resolve to
+   the semantic tokens in :root, which automatically adapt to light/dark.
+   The rules below add the polish on top: glass blur, accent stripe, tinted
+   icon, muted description.
+   ────────────────────────────────────────────────────────── */
+[data-sonner-toaster] {
+  --width: 380px;
+  font-family: var(--font-text);
+}
+
+[data-sonner-toaster] [data-sonner-toast] {
+  border-radius: var(--radius-card);
+  border-width: 1px;
+  border-style: solid;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: var(--shadow-elevated);
+  padding: 12px 14px;
+  /* Sonner's default font sizes are slightly chunky for a desktop chrome —
+     pull them in line with the rest of the app. */
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-title] {
+  font-weight: 600;
+  color: inherit;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-description] {
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+
+/* Default (no data-type or data-type="default") — keep neutral. */
+[data-sonner-toaster] [data-sonner-toast] [data-icon] {
+  color: var(--fg-muted);
+}
+
+/* Accent stripe + matching icon hue per type. The stripe uses an inset
+   box-shadow so we don't fight Sonner's own border declaration. */
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] {
+  box-shadow: var(--shadow-elevated), inset 3px 0 0 0 var(--danger);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="error"] [data-icon] {
+  color: var(--danger);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] {
+  box-shadow: var(--shadow-elevated), inset 3px 0 0 0 var(--warning);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="warning"] [data-icon] {
+  color: var(--warning);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] {
+  box-shadow: var(--shadow-elevated), inset 3px 0 0 0 var(--success);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="success"] [data-icon] {
+  color: var(--success);
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] {
+  box-shadow: var(--shadow-elevated), inset 3px 0 0 0 var(--accent);
+}
+[data-sonner-toaster] [data-sonner-toast][data-type="info"] [data-icon] {
+  color: var(--accent);
+}
+
+/* Action / cancel buttons inside a toast — match the surrounding tone so
+   the "Install / Skip" pair on the update toast doesn't look jarring. */
+[data-sonner-toaster] [data-sonner-toast] [data-button] {
+  background: var(--bg-input);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+[data-sonner-toaster] [data-sonner-toast] [data-button]:hover {
+  background: var(--bg-hover);
+}
+[data-sonner-toaster] [data-sonner-toast] [data-cancel] {
+  background: transparent;
+  color: var(--fg-muted);
+}
+[data-sonner-toaster] [data-sonner-toast] [data-cancel]:hover {
+  color: var(--fg);
+  background: var(--bg-hover);
 }
 

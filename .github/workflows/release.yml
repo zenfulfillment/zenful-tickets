@@ -65,10 +65,18 @@ jobs:
         with:
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      # IMPORTANT: include matrix.args in the cache key. Without it, both
+      # macOS jobs (`--target aarch64-apple-darwin` and
+      # `--target x86_64-apple-darwin`) run on the same `macos-latest` image
+      # and rust-cache keys default to `${{ runner.os }}` + Cargo.lock —
+      # which means the two architectures clobber each other's caches. The
+      # symptom is one of the two macOS .dmg files (usually arm64) shipping
+      # mis-targeted artifacts that fail to launch on the user's machine.
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          key: ${{ matrix.platform }}-${{ matrix.args }}
 
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile

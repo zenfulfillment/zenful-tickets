@@ -355,14 +355,25 @@ Output bundles land in `src-tauri/target/release/bundle/`.
 
 ## Releasing
 
-CI publishes signed releases for macOS (arm64 + x64), Linux (x64), and Windows (x64) via [`tauri-action`](https://github.com/tauri-apps/tauri-action). Push a `v*` tag — for example:
+CI publishes signed releases for macOS (arm64 + x64), Linux (x64), and Windows (x64) via [`tauri-action`](https://github.com/tauri-apps/tauri-action).
+
+The recommended path is the bundled `scripts/release.sh` helper, which atomically bumps every version manifest, commits on `main`, fast-forwards the `release` branch, tags, and pushes:
 
 ```bash
-git tag -a v0.2.0 -m "v0.2.0"
-git push origin v0.2.0
+./scripts/release.sh 0.2.0
 ```
 
-…and `.github/workflows/release.yml` cuts a draft release with bundles, generates `latest.json` for the auto-updater, then promotes the release to published.
+It refuses to run on a dirty tree, will not overwrite an existing tag, and only requires a clean `main` checked out. After the push, `.github/workflows/release.yml` cuts a draft release with bundles, mirrors per-platform assets to stable filenames, lets `tauri-action` generate `latest.json` for the auto-updater, then promotes the release to published.
+
+Manual path (if you'd rather drive the steps yourself):
+
+```bash
+# bump versions in package.json, src-tauri/Cargo.toml, src-tauri/Cargo.lock,
+# src-tauri/tauri.conf.json, then:
+git add -p && git commit -m "release v0.2.0" && git push origin main
+git checkout release && git merge --no-ff main && git push origin release
+git tag -a v0.2.0 -m "v0.2.0" && git push origin v0.2.0
+```
 
 Required GitHub secrets:
 

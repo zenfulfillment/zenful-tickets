@@ -47,13 +47,25 @@ const Toaster = (props: ToasterProps) => {
       className="cn-toaster"
       style={
         {
+          // Default (info / plain) — neutral glass card.
           "--normal-bg": "var(--bg-card)",
           "--normal-text": "var(--fg)",
           "--normal-border": "var(--border)",
-          "--success-bg": "var(--bg-card)",
-          "--success-text": "var(--fg)",
-          "--error-bg": "var(--bg-card)",
-          "--error-text": "var(--fg)",
+          // Per-type surfaces use the semantic tokens defined in styles/index.css
+          // (--danger-*, --warning-*, --success-*). These resolve correctly in
+          // both light and dark mode without us doing anything theme-aware here.
+          "--success-bg": "var(--success-bg)",
+          "--success-text": "var(--success-fg)",
+          "--success-border": "var(--success-border)",
+          "--error-bg": "var(--danger-bg)",
+          "--error-text": "var(--danger-fg)",
+          "--error-border": "var(--danger-border)",
+          "--warning-bg": "var(--warning-bg)",
+          "--warning-text": "var(--warning-fg)",
+          "--warning-border": "var(--warning-border)",
+          "--info-bg": "var(--accent-soft)",
+          "--info-text": "var(--accent)",
+          "--info-border": "var(--border-strong)",
         } as React.CSSProperties
       }
       toastOptions={{
