@@ -52,6 +52,16 @@ log = "0.4"
 bytes = "1"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 
+# Attachment text extraction. Pulled in deliberately to keep the surface area
+# tight: calamine handles xlsx + xls + ods, pdf-extract handles plain-text PDF
+# extraction, csv handles delimited reads. DOCX is decoded manually via zip +
+# quick-xml (already pulled transitively) to avoid the heavy `docx-rust` tree.
+calamine = "0.26"
+pdf-extract = "0.7"
+csv = "1.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+quick-xml = "0.36"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # macOS-specific — platform-conditional so Windows/Linux builds don't break.
 

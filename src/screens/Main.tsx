@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Background } from "../components/Background";
 import { Icon } from "../components/Icon";
+import { AttachmentMenu } from "../components/AttachmentMenu";
+import { AttachmentChips } from "../components/AttachmentChips";
+import { useDraftAttachments } from "../lib/use-draft-attachments";
 import {
   ArrowRightIcon,
   MicIcon,
@@ -70,6 +74,21 @@ export function Main() {
   const voiceRef = useRef<VoiceSession | null>(null);
   const voiceRafRef = useRef<number | null>(null);
 
+  // Per-draft attachment state. The hook owns its session id, registers
+  // files with the Rust backend via the new attachment_* commands, and
+  // returns the canonical AttachmentRef[] for chip rendering. On submit we
+  // hand the session id + refs over to Draft.tsx — that screen owns
+  // cleanup (purging on success or cancel) since the cached bytes need to
+  // outlive Main.tsx for the AI / Jira pipeline to consume them.
+  const {
+    sessionId: attachmentsSessionId,
+    attachments,
+    addFiles,
+    addPaths,
+    remove: removeAttachment,
+  } = useDraftAttachments();
+  const [dragOver, setDragOver] = useState(false);
+
   // CLI detection — needed alongside `secrets` to know whether each provider
   // is actually usable (enabled + configured). Refreshed on mount; Settings
   // re-detects when its AI section opens.
@@ -77,6 +96,97 @@ export function Main() {
   useEffect(() => {
     void aiDetectClis().then(setDetected).catch(() => setDetected(null));
   }, []);
+
+  // Warn the user when they've attached an image and the active provider
+  // doesn't support vision. Per current product call: only Claude is treated
+  // as image-capable (Gemini also has vision but that's a future polish).
+  // Fired exactly once per provider/attachment-set transition so re-entering
+  // the screen doesn't keep beeping the same warning at the user.
+  const warnedKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const hasImage = attachments.some((a) => a.kind === "image");
+    if (!hasImage) {
+      warnedKeyRef.current = null;
+      return;
+    }
+    if (provider === "claude_cli") {
+      warnedKeyRef.current = null;
+      return;
+    }
+    const imageIds = attachments
+      .filter((a) => a.kind === "image")
+      .map((a) => a.id)
+      .sort()
+      .join(",");
+    const key = `${provider}|${imageIds}`;
+    if (warnedKeyRef.current === key) return;
+    warnedKeyRef.current = key;
+
+    const providerLabel =
+      provider === "codex_cli" ? "Codex" : provider === "gemini" ? "Gemini" : "this model";
+    notify(`${providerLabel} can't see attached images`, {
+      kind: "warning",
+      description: `Switch to Claude if you want the model to read your screenshots — otherwise only the document attachments will be passed through.`,
+    });
+  }, [provider, attachments]);
+
+  // Drag-drop on the entire window. Tauri exposes file paths (not blob URLs),
+  // so we route through `addPaths` which calls attachment_register_path on
+  // the Rust side. We track a `dragOver` flag so the input glow can intensify
+  // while a drag is in progress — the highlight reads as a clear target zone.
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    let unlisten: (() => void) | undefined;
+    void win
+      .onDragDropEvent((event) => {
+        if (event.payload.type === "enter" || event.payload.type === "over") {
+          setDragOver(true);
+        } else if (event.payload.type === "leave") {
+          setDragOver(false);
+        } else if (event.payload.type === "drop") {
+          setDragOver(false);
+          void addPaths(event.payload.paths);
+        }
+      })
+      .then((fn) => {
+        unlisten = fn;
+      });
+    return () => unlisten?.();
+  }, [addPaths]);
+
+  // Paste handler — captures clipboard image blobs (the "user copied a
+  // screenshot" path that motivated this feature). File-list pastes (Cmd+C
+  // on a file in Finder) don't surface paths via the webview clipboard API,
+  // so drag-drop or the Browse button covers those.
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f) {
+            // Browser-pasted images often arrive without a useful filename
+            // ("image.png" at best). Stamp them with a timestamp so the user
+            // can tell sequential pastes apart in the chip row.
+            const named =
+              f.name && f.name !== "image.png"
+                ? f
+                : new File([f], `pasted-${Date.now()}.${f.type.split("/")[1] || "png"}`, {
+                    type: f.type,
+                  });
+            files.push(named);
+          }
+        }
+      }
+      if (files.length > 0) {
+        e.preventDefault();
+        void addFiles(files);
+      }
+    },
+    [addFiles],
+  );
 
   // Typing-driven orb level — stored in a ref so the per-frame decay loop
   // never re-renders the React tree. Keystrokes bump the ref; the rAF tick
@@ -199,9 +309,21 @@ export function Main() {
     // Strip the in-flight partial-transcript marker before shipping —
     // the marker is a state-internal bookkeeping aid and never user-visible.
     const trimmed = stripPartialMarker(text).trim();
-    if (!trimmed) return;
+    if (!trimmed && attachments.length === 0) return;
     if (voiceActive) void toggleVoice();
-    openDraft({ prompt: trimmed, provider, mode, model: modelId });
+    // Hand attachment ownership off to Draft. We deliberately DON'T call
+    // `clearAttachments()` here — that would purge the on-disk session and
+    // the AI pipeline wouldn't be able to resolve the ids. Draft.tsx is
+    // responsible for purging once the work is complete (issue created or
+    // user cancels). The hook's unmount handler is the safety net.
+    openDraft({
+      prompt: trimmed,
+      provider,
+      mode,
+      model: modelId,
+      attachments: attachments.length > 0 ? attachments : undefined,
+      attachmentSessionId: attachments.length > 0 ? attachmentsSessionId : undefined,
+    });
     setText("");
   };
 
@@ -425,16 +547,27 @@ export function Main() {
               background: "var(--bg-card)",
               backdropFilter: "blur(40px) saturate(180%)",
               WebkitBackdropFilter: "blur(40px) saturate(180%)",
-              border: focused ? "0.5px solid var(--accent)" : "0.5px solid var(--border-strong)",
+              border:
+                dragOver
+                  ? "0.5px dashed var(--accent)"
+                  : focused
+                    ? "0.5px solid var(--accent)"
+                    : "0.5px solid var(--border-strong)",
               borderRadius: 22,
               padding: 4,
-              boxShadow: focused
-                ? "0 12px 40px rgba(10,132,255,0.18), 0 0 0 1px var(--accent-soft) inset"
-                : "0 8px 30px rgba(0,0,0,0.10), 0 1px 0 rgba(255,255,255,0.04) inset",
+              boxShadow: dragOver
+                ? "0 12px 40px rgba(10,132,255,0.28), 0 0 0 2px var(--accent-soft) inset"
+                : focused
+                  ? "0 12px 40px rgba(10,132,255,0.18), 0 0 0 1px var(--accent-soft) inset"
+                  : "0 8px 30px rgba(0,0,0,0.10), 0 1px 0 rgba(255,255,255,0.04) inset",
               transition: "box-shadow 220ms ease, border-color 220ms ease",
             }}
           >
-            <div style={{ padding: "20px 18px 6px" }}>
+            {/* Attachment chip row — only renders when there's at least
+                one attachment, so the composer height stays unchanged for
+                the common no-attachment case. */}
+            <AttachmentChips attachments={attachments} onRemove={(id) => void removeAttachment(id)} />
+            <div style={{ padding: attachments.length > 0 ? "8px 18px 6px" : "20px 18px 6px" }}>
               <textarea
                 ref={taRef}
                 rows={1}
@@ -445,6 +578,7 @@ export function Main() {
                 value={stripPartialMarker(text)}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={handleKey}
+                onPaste={handlePaste}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 placeholder={mode === "PO" ? "Describe the outcome you want…" : "Describe what needs to be built…"}
@@ -465,6 +599,11 @@ export function Main() {
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                <AttachmentMenu
+                  onFiles={(files) => void addFiles(files)}
+                  count={attachments.length}
+                  maxCount={8}
+                />
                 <div className="segmented segmented-sm">
                   <button type="button" className={mode === "PO" ? "active" : ""} onClick={() => { if (mode !== "PO") playUi("toggle"); setMode("PO"); }}>PO</button>
                   <button type="button" className={mode === "DEV" ? "active" : ""} onClick={() => { if (mode !== "DEV") playUi("toggle"); setMode("DEV"); }}>DEV</button>
@@ -540,14 +679,18 @@ export function Main() {
                 )}
 
                 <Button
-                  variant={text.trim() ? "primary" : "default"}
+                  variant={text.trim() || attachments.length > 0 ? "primary" : "default"}
                   size="icon"
                   onClick={handleSubmit}
-                  disabled={!text.trim()}
+                  disabled={!text.trim() && attachments.length === 0}
                   style={{
-                    background: text.trim() ? "var(--accent)" : "var(--bg-active)",
-                    color: text.trim() ? "white" : "var(--fg-subtle)",
-                    boxShadow: text.trim() ? "0 1px 3px rgba(10,132,255,0.3)" : "none",
+                    background:
+                      text.trim() || attachments.length > 0 ? "var(--accent)" : "var(--bg-active)",
+                    color: text.trim() || attachments.length > 0 ? "white" : "var(--fg-subtle)",
+                    boxShadow:
+                      text.trim() || attachments.length > 0
+                        ? "0 1px 3px rgba(10,132,255,0.3)"
+                        : "none",
                   }}
                 >
                   <ArrowRightIcon size={16} />

@@ -1,4 +1,5 @@
 mod ai;
+mod attachments;
 mod error;
 mod jira;
 mod secrets;
@@ -351,6 +352,10 @@ pub fn run() {
             }
             // Global hotkey is registered by the JS layer once settings hydrate
             // (so the user's persisted choice is honoured rather than a hardcoded default).
+            //
+            // Sweep any attachment session directories that haven't been touched
+            // in 24h — best-effort, swallows errors. See attachments::sweep_stale.
+            attachments::sweep_stale(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -381,6 +386,7 @@ pub fn run() {
             jira::jira_create_issue,
             jira::jira_create_subtask,
             jira::jira_upload_attachment,
+            jira::jira_upload_attachment_by_id,
             jira::jira_current_user,
             jira::jira_search_users,
             // ai
@@ -393,6 +399,13 @@ pub fn run() {
             speech::speech_start,
             speech::speech_stop,
             speech::speech_send_chunk,
+            // attachments
+            attachments::attachment_register_bytes,
+            attachments::attachment_register_path,
+            attachments::attachment_remove,
+            attachments::attachment_purge_session,
+            attachments::attachment_list,
+            attachments::attachment_list_all,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

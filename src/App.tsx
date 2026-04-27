@@ -6,6 +6,7 @@ import { useAppStore } from "./store";
 import { listenSummon, setGlobalShortcut } from "./lib/tauri";
 import { notify, notifyUpdate } from "./lib/notify";
 import { Toaster } from "./components/ui/sonner";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { Onboarding } from "./screens/Onboarding";
 import { Main } from "./screens/Main";
 import { Draft } from "./screens/Draft";
@@ -81,21 +82,23 @@ export default function App() {
   }, [screen === "loading"]);
 
   return (
-    <div className="app-root">
-      {/* macOS: invisible draggable strip behind the traffic-light dots so the
-          window can be moved by grabbing anywhere along the top. On Windows /
-          Linux the OS already provides chrome above us — the strip collapses
-          to zero height via CSS. */}
-      <div className="titlebar-drag" data-tauri-drag-region />
-      {screen === "loading" && <LoadingStub />}
-      {screen === "onboarding" && <Onboarding />}
-      {screen === "main" && <Main />}
-      {screen === "draft" && <Draft />}
-      {screen === "settings" && <Settings />}
-      {/* Single Toaster — bottom-left default; the update toast overrides
-          its own position to bottom-right via lib/notify.ts. */}
-      <Toaster />
-    </div>
+    <TooltipProvider>
+      <div className="app-root">
+        {/* macOS: invisible draggable strip behind the traffic-light dots so the
+            window can be moved by grabbing anywhere along the top. On Windows /
+            Linux the OS already provides chrome above us — the strip collapses
+            to zero height via CSS. */}
+        <div className="titlebar-drag" data-tauri-drag-region />
+        {screen === "loading" && <LoadingStub />}
+        {screen === "onboarding" && <Onboarding />}
+        {screen === "main" && <Main />}
+        {screen === "draft" && <Draft />}
+        {screen === "settings" && <Settings />}
+        {/* Single Toaster — bottom-left default; the update toast overrides
+            its own position to bottom-right via lib/notify.ts. */}
+        <Toaster />
+      </div>
+    </TooltipProvider>
   );
 }
 

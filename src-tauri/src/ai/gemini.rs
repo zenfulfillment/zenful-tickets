@@ -2,10 +2,13 @@
 //! Endpoint: /v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse
 
 use crate::ai::StreamChunk;
+use crate::attachments::ResolvedAttachment;
 use crate::error::{AppError, AppResult};
+use base64::Engine;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde_json::{Value, json};
+use std::path::Path;
 use tokio::sync::{mpsc, oneshot};
 
 const DEFAULT_MODEL: &str = "gemini-2.5-pro";
@@ -16,6 +19,10 @@ pub async fn stream(
     system_prompt: String,
     user_prompt: String,
     model: Option<String>,
+    // Resolved attachments — image/pdf entries become `inline_data` parts;
+    // text-extracted entries are already prepended to `user_prompt` by the
+    // caller (so callers don't need to also pass the text twice).
+    inline_attachments: Vec<ResolvedAttachment>,
     chunks_tx: mpsc::Sender<StreamChunk>,
     mut cancel_rx: oneshot::Receiver<()>,
 ) -> AppResult<()> {
@@ -30,9 +37,26 @@ pub async fn stream(
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{model_id}:streamGenerateContent?alt=sse&key={api_key}"
     );
+
+    // Build the user message parts. Order is: every inline attachment first,
+    // then the text. Gemini reads parts left-to-right, and putting image
+    // context up front lets the textual instructions reference what the
+    // model just saw ("based on the screenshot above…").
+    let mut parts: Vec<Value> = Vec::new();
+    for a in &inline_attachments {
+        let Some(part) = inline_data_part(&a.path, &a.r#ref.mime) else {
+            // Skip attachments we can't inline (large files, IO errors).
+            // The text payload already contains a textual fallback for
+            // documents — images are the only thing genuinely lost here.
+            continue;
+        };
+        parts.push(part);
+    }
+    parts.push(json!({ "text": user_prompt }));
+
     let body = json!({
         "systemInstruction": { "parts": [{ "text": system_prompt }] },
-        "contents": [{ "role": "user", "parts": [{ "text": user_prompt }] }],
+        "contents": [{ "role": "user", "parts": parts }],
         "generationConfig": {
             "temperature": 0.4,
             "topP": 0.95,
@@ -118,4 +142,21 @@ fn extract_text(v: &Value) -> Option<String> {
 
 fn truncate(s: &str, n: usize) -> String {
     if s.len() <= n { s.to_string() } else { format!("{}…", &s[..n]) }
+}
+
+/// Build a Gemini `inline_data` part from a local file. Reads the bytes,
+/// base64-encodes them, and pairs with the declared MIME type.
+///
+/// Returns `None` on read failure. Gemini's request payload limit is on the
+/// order of 20 MB; our per-attachment cap is 10 MB so we fit comfortably
+/// even with several attachments in one request.
+fn inline_data_part(path: &Path, mime: &str) -> Option<Value> {
+    let bytes = std::fs::read(path).ok()?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Some(json!({
+        "inline_data": {
+            "mime_type": mime,
+            "data": encoded,
+        }
+    }))
 }

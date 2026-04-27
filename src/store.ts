@@ -1,6 +1,11 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { create } from "zustand";
-import { DEFAULT_SETTINGS, type AppSettings, type SecretsStatus } from "./types";
+import {
+  DEFAULT_SETTINGS,
+  type AppSettings,
+  type AttachmentRef,
+  type SecretsStatus,
+} from "./types";
 import { applyReduceMotion, applyTheme } from "./lib/theme";
 import { secretsStatus as fetchSecretsStatus } from "./lib/tauri";
 
@@ -17,6 +22,17 @@ export interface DraftContext {
   /** Per-provider model id the user picked in the model selector.
    *  Missing/empty → backend uses the provider's default model. */
   model?: string;
+  /**
+   * Attachments registered against the prompt. Carry through to the AI
+   * draft (image/text routing per provider) and to Jira issue creation
+   * (uploaded after the issue is minted via `jira_upload_attachment_by_id`).
+   *
+   * The `sessionId` is preserved alongside the refs so the Draft screen
+   * can call `attachment_purge_session` after the work is complete —
+   * Main.tsx hands ownership of cleanup off rather than purging on submit.
+   */
+  attachments?: AttachmentRef[];
+  attachmentSessionId?: string;
 }
 
 export interface AppStoreState {

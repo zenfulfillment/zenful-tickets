@@ -26,6 +26,9 @@ import {
   jiraListProjects,
   jiraSearchUsers,
   jiraUploadAttachment,
+  jiraUploadAttachmentById,
+  attachmentPurgeSession,
+  attachmentRemove,
   listenDraft,
   type SubtaskExpansion,
 } from "../lib/tauri";
@@ -45,6 +48,7 @@ import {
   ISSUE_TYPE_COLORS,
   MODELS,
   PRIORITY_COLORS,
+  type AttachmentRef,
   type JiraEpic,
   type JiraIssueType,
   type JiraPriority,
@@ -103,6 +107,15 @@ export function Draft() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [createdUrl, setCreatedUrl] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<string[]>([]);
+  // Prompt-side attachments forwarded from Main.tsx — rendered alongside
+  // the path-based ones so the user sees everything that's about to land
+  // on the Jira ticket. Held as local state so removing a chip on this
+  // screen drops the file from BOTH the create pipeline AND any
+  // in-flight refine call (we resolve from this state, not from the
+  // immutable `ctx.attachments`).
+  const [promptAttachments, setPromptAttachments] = useState<AttachmentRef[]>(
+    ctx.attachments ?? [],
+  );
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Step-by-step "create pipeline" overlay state. We only render the modal
@@ -219,6 +232,7 @@ export function Draft() {
         tone: settings.tone,
         custom_system_prompt: settings.systemPrompt || undefined,
         model: ctx.model || undefined,
+        attachment_ids: promptAttachments.map((a) => a.id),
       });
     } catch (e) {
       if (!isCurrent()) return;
@@ -233,6 +247,21 @@ export function Draft() {
     return () => cleanupRef.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Prompt-attachment cleanup ───────────────────────────────
+  // Main.tsx hands ownership of the prompt-attachment session to us — the
+  // cached bytes need to outlive Main's unmount because the AI pipeline +
+  // Jira upload both consume them. Once we leave Draft (whether via
+  // success, cancel, or an aiCancel-then-back), purge the session so the
+  // disk doesn't accumulate files. Best-effort; the periodic 24 h sweep
+  // is the safety net.
+  useEffect(() => {
+    const sid = ctx.attachmentSessionId;
+    if (!sid) return;
+    return () => {
+      void attachmentPurgeSession(sid).catch(() => {});
+    };
+  }, [ctx.attachmentSessionId]);
 
   // ── Auth-error helpers ──────────────────────────────────────
   const authProvider = detectAuthProvider(streamError, ctx.provider);
@@ -385,6 +414,7 @@ export function Draft() {
         custom_system_prompt: settings.systemPrompt || undefined,
         refine_of: baseDraftMd,
         model: ctx.model || undefined,
+        attachment_ids: promptAttachments.map((a) => a.id),
       });
       setRefineText("");
     } catch (e) {
@@ -448,16 +478,25 @@ export function Draft() {
       ? meta.issueTypes.find((t) => t.subtask)
       : undefined;
 
+    // Total attachment count is the union of two sources:
+    //   - `attachments` (string[]): files the user added on the Draft
+    //     screen via the Attach button. Resolved via raw paths.
+    //   - `promptAttachments` (AttachmentRef[]): files attached to the
+    //     original prompt and already registered in the Rust attachment
+    //     registry. Uploaded via `jira_upload_attachment_by_id`. Held in
+    //     local Draft state so removing a chip here drops the upload.
+    const totalAttachmentCount = attachments.length + promptAttachments.length;
+
     // Build the step list dynamically — each visible row is something
     // we ARE going to do for this submission. No fake/placeholder rows.
     const steps: PipelineStep[] = [];
     steps.push({ id: "ticket", label: `Creating ${draft.type ?? "ticket"}`, status: "active" });
-    if (attachments.length > 0) {
+    if (totalAttachmentCount > 0) {
       steps.push({
         id: "attachments",
-        label: attachments.length === 1
+        label: totalAttachmentCount === 1
           ? "Uploading attachment"
-          : `Uploading ${attachments.length} attachments`,
+          : `Uploading ${totalAttachmentCount} attachments`,
         status: "pending",
       });
     }
@@ -523,15 +562,29 @@ export function Draft() {
       updateStep("ticket", { status: "done", detail: created.key });
 
       // ── Step: Attachments ─────────────────────────────────────
-      if (attachments.length > 0) {
+      if (totalAttachmentCount > 0) {
         updateStep("attachments", { status: "active" });
         let uploaded = 0;
+        // Prompt-side attachments first — these were the user's primary
+        // intent ("attach this screenshot to the ticket") and should land
+        // before any post-creation files added on the Draft screen.
+        for (const a of promptAttachments) {
+          try {
+            await jiraUploadAttachmentById(created.key, a.id);
+            uploaded++;
+            updateStep("attachments", {
+              detail: `${uploaded} / ${totalAttachmentCount}`,
+            });
+          } catch (e) {
+            console.warn("prompt attachment upload failed:", a.filename, e);
+          }
+        }
         for (const path of attachments) {
           try {
             await jiraUploadAttachment(created.key, path);
             uploaded++;
             updateStep("attachments", {
-              detail: `${uploaded} / ${attachments.length}`,
+              detail: `${uploaded} / ${totalAttachmentCount}`,
             });
           } catch (e) {
             console.warn("attachment failed:", path, e);
@@ -539,7 +592,7 @@ export function Draft() {
         }
         updateStep("attachments", {
           status: "done",
-          detail: `${uploaded} / ${attachments.length}`,
+          detail: `${uploaded} / ${totalAttachmentCount}`,
         });
       }
 
@@ -566,6 +619,7 @@ export function Draft() {
               subtask_titles: subtasks,
               custom_system_prompt: settings.systemPrompt || undefined,
               model: ctx.model || undefined,
+              attachment_ids: promptAttachments.map((a) => a.id),
             });
             updateStep("expand", {
               status: "done",
@@ -745,7 +799,11 @@ export function Draft() {
           </span>
           <Button onClick={() => void handleAttach()}>
             <Icon.Paperclip size={12} /> Attach
-            {attachments.length > 0 && <span className="chip" style={{ marginLeft: 4 }}>{attachments.length}</span>}
+            {(attachments.length + promptAttachments.length) > 0 && (
+              <span className="chip" style={{ marginLeft: 4 }}>
+                {attachments.length + promptAttachments.length}
+              </span>
+            )}
           </Button>
           {/* RefreshCCWIcon spins on hover — perfect for the regenerate concept; reserved for a future "Regenerate" affordance. */}
           <Button
@@ -779,12 +837,8 @@ export function Draft() {
               proj={proj}
               issueType={it}
               issueTypeColor={itColor}
-              attachments={attachments}
               authProvider={authProvider}
               onTitleChange={(t) => setDraft((d) => d ? { ...d, title: t } : d)}
-              onRemoveAttachment={(i) =>
-                setAttachments((a) => a.filter((_, j) => j !== i))
-              }
               onSignIn={handleSignIn}
               onRetry={() => void runInitialDraft()}
             />
@@ -920,6 +974,28 @@ export function Draft() {
               <AddLabel onAdd={(label) => setDraft((d) => d ? { ...d, labels: [...d.labels, label] } : d)} />
             </div>
           </MetaRow>
+
+          {/* Attachments meta block — vertical layout (heading on top, list
+              below) because a 280px sidebar doesn't have horizontal room for
+              chip pills. Mirrors AttachmentChips.tsx's visual language
+              (image thumbnail OR semantic type badge, filename, byte size,
+              X to remove) but tighter. Renders both kinds of attachment
+              together: prompt-side (carried from Main) and post-create paths
+              (added via the Attach button). Hidden when there's nothing to
+              show so the sidebar stays compact for the bare-prompt case. */}
+          {(promptAttachments.length + attachments.length) > 0 && (
+            <MetaAttachmentSection
+              promptAttachments={promptAttachments}
+              pathAttachments={attachments}
+              onRemovePromptAttachment={(id) => {
+                setPromptAttachments((cur) => cur.filter((a) => a.id !== id));
+                void attachmentRemove(id).catch(() => {});
+              }}
+              onRemovePathAttachment={(i) =>
+                setAttachments((a) => a.filter((_, j) => j !== i))
+              }
+            />
+          )}
 
           {createError && (
             <div className="card" style={{ padding: 12, marginTop: 16, borderColor: "rgba(255,69,58,0.4)", background: "rgba(255,69,58,0.06)" }}>
@@ -1243,10 +1319,8 @@ interface DraftBodyProps {
   proj: JiraProject | undefined;
   issueType: JiraIssueType | undefined;
   issueTypeColor: IssueTypeColor | undefined;
-  attachments: string[];
   authProvider: "claude" | "codex" | null;
   onTitleChange: (t: string) => void;
-  onRemoveAttachment: (i: number) => void;
   onSignIn: () => void | Promise<void>;
   onRetry: () => void;
 }
@@ -1261,10 +1335,8 @@ function DraftBody({
   proj,
   issueType,
   issueTypeColor,
-  attachments,
   authProvider,
   onTitleChange,
-  onRemoveAttachment,
   onSignIn,
   onRetry,
 }: DraftBodyProps) {
@@ -1353,28 +1425,10 @@ function DraftBody({
         <DraftSkeleton />
       ) : null}
 
-      {/* Inline attachments badge row stays on the left because it's part of
-          the ticket payload, not the meta-controls panel. */}
-      {attachments.length > 0 && draft && (
-        <div style={{ marginTop: 22, display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {attachments.map((p, i) => (
-            <span key={i} className="chip" style={{ height: 26, padding: "0 8px" }}>
-              <Icon.Paperclip size={11} />
-              {basename(p)}
-              <button
-                type="button"
-                onClick={() => onRemoveAttachment(i)}
-                style={{
-                  width: 14, height: 14, border: 0, background: "transparent",
-                  color: "currentColor", cursor: "pointer", opacity: 0.6, marginLeft: 2,
-                }}
-              >
-                <Icon.X size={10} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
+      {/* Attachments are surfaced in the right-hand meta sidebar
+          (`MetaAttachmentSection`) rather than at the end of the ticket
+          body. That keeps every editable ticket field — type, project,
+          priority, labels, attachments — together in one spatial place. */}
 
       {/* If we have ANY content (a parsed draft OR streamed prose) AND an
           error (e.g. JSON block didn't parse, or partial result with a tail
@@ -1535,6 +1589,294 @@ function MetaRow({ label, children }: { label: string; children: React.ReactNode
       <div style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "flex-end" }}>{children}</div>
     </div>
   );
+}
+
+/**
+ * Vertical-layout meta block for attachments. The horizontal MetaRow doesn't
+ * fit a list of preview tiles in 280px of usable width, so this variant puts
+ * the label on top and stacks the entries below.
+ *
+ * Visual language echoes AttachmentChips.tsx (Main.tsx's prompt input row):
+ * 28×28 image thumbnail OR coloured type badge, filename, byte size,
+ * extracted-char hint. Path-only attachments (added via the Attach button on
+ * this screen) get a paperclip icon since we don't have a thumbnail or kind
+ * for them. Both flavours can be removed individually.
+ */
+function MetaAttachmentSection({
+  promptAttachments,
+  pathAttachments,
+  onRemovePromptAttachment,
+  onRemovePathAttachment,
+}: {
+  promptAttachments: AttachmentRef[];
+  pathAttachments: string[];
+  onRemovePromptAttachment: (id: string) => void;
+  onRemovePathAttachment: (i: number) => void;
+}) {
+  const total = promptAttachments.length + pathAttachments.length;
+  return (
+    <div style={{ padding: "10px 0 8px", borderBottom: "0.5px solid var(--border)" }}>
+      <div
+        style={{
+          font: "500 12px var(--font-text)",
+          color: "var(--fg-muted)",
+          marginBottom: 8,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span>Attachments</span>
+        <span style={{ font: "500 11px var(--font-text)", color: "var(--fg-subtle)" }}>
+          {total}
+        </span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {promptAttachments.map((a) => (
+          <PromptAttachmentTile
+            key={a.id}
+            attachment={a}
+            onRemove={() => onRemovePromptAttachment(a.id)}
+          />
+        ))}
+        {pathAttachments.map((p, i) => (
+          <PathAttachmentTile
+            key={`path-${i}`}
+            path={p}
+            onRemove={() => onRemovePathAttachment(i)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PromptAttachmentTile({
+  attachment: a,
+  onRemove,
+}: {
+  attachment: AttachmentRef;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      title={`${a.filename} · ${formatTileBytes(a.size_bytes)}${
+        a.extracted_chars > 0 ? ` · ~${formatTileChars(a.extracted_chars)} sent to model` : ""
+      }`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 6px 5px 5px",
+        background: "var(--bg-card)",
+        border: "0.5px solid var(--border)",
+        borderRadius: 8,
+      }}
+    >
+      {a.kind === "image" && a.preview_data_url ? (
+        <img
+          src={a.preview_data_url}
+          alt=""
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 5,
+            objectFit: "cover",
+            flexShrink: 0,
+            border: "0.5px solid var(--border)",
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 5,
+            background: tileBg(a.kind),
+            color: tileFg(a.kind),
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 10,
+            fontWeight: 600,
+            fontFamily: "var(--font-mono)",
+            letterSpacing: "0.02em",
+            flexShrink: 0,
+          }}
+        >
+          {tileLabel(a.kind, a.filename)}
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0, flex: 1 }}>
+        <span
+          style={{
+            font: "500 12px var(--font-text)",
+            color: "var(--fg)",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            letterSpacing: "-0.005em",
+          }}
+        >
+          {a.filename}
+        </span>
+        <span style={{ font: "400 10.5px var(--font-text)", color: "var(--fg-subtle)", lineHeight: 1 }}>
+          {formatTileBytes(a.size_bytes)}
+          {a.extracted_chars > 0 && ` · ${formatTileChars(a.extracted_chars)}`}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remove"
+        aria-label={`Remove ${a.filename}`}
+        style={{
+          width: 18,
+          height: 18,
+          padding: 0,
+          background: "transparent",
+          border: "none",
+          borderRadius: 4,
+          color: "var(--fg-subtle)",
+          cursor: "pointer",
+          flexShrink: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "var(--bg-active)";
+          e.currentTarget.style.color = "var(--fg)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "transparent";
+          e.currentTarget.style.color = "var(--fg-subtle)";
+        }}
+      >
+        <Icon.X size={11} />
+      </button>
+    </div>
+  );
+}
+
+function PathAttachmentTile({
+  path,
+  onRemove,
+}: {
+  path: string;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      title={path}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 6px 5px 5px",
+        background: "var(--bg-card)",
+        border: "0.5px solid var(--border)",
+        borderRadius: 8,
+      }}
+    >
+      <div
+        style={{
+          width: 28, height: 28, borderRadius: 5,
+          background: "var(--bg-active)",
+          color: "var(--fg-muted)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        <Icon.Paperclip size={13} />
+      </div>
+      <span
+        style={{
+          flex: 1,
+          font: "500 12px var(--font-text)",
+          color: "var(--fg)",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          letterSpacing: "-0.005em",
+        }}
+      >
+        {basename(path)}
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        title="Remove"
+        aria-label={`Remove ${basename(path)}`}
+        style={{
+          width: 18,
+          height: 18,
+          padding: 0,
+          background: "transparent",
+          border: "none",
+          borderRadius: 4,
+          color: "var(--fg-subtle)",
+          cursor: "pointer",
+          flexShrink: 0,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon.X size={11} />
+      </button>
+    </div>
+  );
+}
+
+function tileLabel(kind: AttachmentRef["kind"], filename: string): string {
+  const ext = (filename.split(".").pop() ?? "").toUpperCase();
+  switch (kind) {
+    case "pdf": return "PDF";
+    case "csv": return "CSV";
+    case "spreadsheet": return ext === "ODS" ? "ODS" : "XLS";
+    case "document": return "DOC";
+    case "text": return "TXT";
+    case "image": return "IMG";
+    default: return ext.slice(0, 3) || "?";
+  }
+}
+
+function tileBg(kind: AttachmentRef["kind"]): string {
+  switch (kind) {
+    case "pdf": return "rgba(255,69,58,0.16)";
+    case "csv": return "rgba(48,209,88,0.16)";
+    case "spreadsheet": return "rgba(48,209,88,0.16)";
+    case "document": return "rgba(10,132,255,0.16)";
+    case "text": return "rgba(120,120,128,0.16)";
+    case "image": return "rgba(191,90,242,0.16)";
+    default: return "var(--bg-active)";
+  }
+}
+
+function tileFg(kind: AttachmentRef["kind"]): string {
+  switch (kind) {
+    case "pdf": return "#ff453a";
+    case "csv": return "#30d158";
+    case "spreadsheet": return "#30d158";
+    case "document": return "#0a84ff";
+    case "text": return "var(--fg-muted)";
+    case "image": return "#bf5af2";
+    default: return "var(--fg-muted)";
+  }
+}
+
+function formatTileBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatTileChars(chars: number): string {
+  if (chars < 1000) return `${chars} chars`;
+  return `${(chars / 1000).toFixed(1)}k chars`;
 }
 
 /**

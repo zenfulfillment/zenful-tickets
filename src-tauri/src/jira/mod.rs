@@ -6,6 +6,7 @@ use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use reqwest::{Method, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use tauri::State;
 
 pub mod adf;
@@ -469,18 +470,63 @@ pub async fn jira_upload_attachment(
         .and_then(|n| n.to_str())
         .unwrap_or("attachment")
         .to_string();
-    let mime = mime_guess(&filename);
+    upload_bytes(&state, &req.issue_key, &filename, bytes, mime_guess(&filename)).await
+}
 
+#[derive(Debug, Deserialize)]
+pub struct AttachmentByIdRequest {
+    pub issue_key: String,
+    /// Attachment id previously returned by `attachment_register_*`.
+    pub attachment_id: String,
+}
+
+/// Upload a previously-registered prompt attachment to a Jira issue. Used
+/// after `jira_create_issue` so files the user attached to the original
+/// prompt also land on the resulting ticket.
+///
+/// Path is resolved server-side from the attachment registry — the webview
+/// only ever passes the opaque id. We keep this distinct from
+/// `jira_upload_attachment` so the existing post-create-from-Finder flow
+/// (which deals in raw filesystem paths) isn't disturbed.
+#[tauri::command]
+pub async fn jira_upload_attachment_by_id(
+    state: State<'_, AppState>,
+    req: AttachmentByIdRequest,
+) -> AppResult<Value> {
+    let entry = state
+        .attachments
+        .resolve(&req.attachment_id)
+        .ok_or_else(|| AppError::Invalid(format!("attachment id not found: {}", req.attachment_id)))?;
+    let path: PathBuf = entry.path.clone();
+    let bytes = tokio::fs::read(&path).await?;
+    upload_bytes(
+        &state,
+        &req.issue_key,
+        &entry.r#ref.filename,
+        bytes,
+        entry.r#ref.mime.clone(),
+    )
+    .await
+}
+
+async fn upload_bytes(
+    state: &State<'_, AppState>,
+    issue_key: &str,
+    filename: &str,
+    bytes: Vec<u8>,
+    mime: impl Into<String>,
+) -> AppResult<Value> {
+    let mime = mime.into();
     let form = reqwest::multipart::Form::new().part(
         "file",
         reqwest::multipart::Part::bytes(bytes)
-            .file_name(filename)
-            .mime_str(mime)
+            .file_name(filename.to_string())
+            .mime_str(&mime)
             .map_err(|e| AppError::Invalid(format!("mime: {e}")))?,
     );
 
-    let path = format!("/rest/api/3/issue/{}/attachments", urlencoding_encode(&req.issue_key));
-    let resp = request(&state, Method::POST, &path)?
+    let path = format!("/rest/api/3/issue/{}/attachments", urlencoding_encode(issue_key));
+    let resp = request(state, Method::POST, &path)?
         .header("X-Atlassian-Token", "no-check")
         .multipart(form)
         .send()

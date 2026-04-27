@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AttachmentRef,
   CreateIssueResponse,
   DetectResult,
   DraftDoneEvent,
@@ -77,6 +78,8 @@ export interface ExpandSubtasksArgs {
   custom_system_prompt?: string;
   /** Per-provider model id picked in the model selector. */
   model?: string;
+  /** Same routing as `DraftArgs.attachment_ids`. */
+  attachment_ids?: string[];
 }
 
 export const aiExpandSubtasks = (req: ExpandSubtasksArgs) =>
@@ -86,6 +89,50 @@ export const jiraUploadAttachment = (issueKey: string, filePath: string) =>
   invoke<unknown>("jira_upload_attachment", {
     req: { issue_key: issueKey, file_path: filePath },
   });
+
+/**
+ * Upload an attachment by registry id (from `attachment_register_*`). Used
+ * by the Draft screen after `jira_create_issue` to attach the prompt's
+ * companion files to the new ticket. Path resolution happens in Rust so the
+ * webview never needs to know where the cached bytes live.
+ */
+export const jiraUploadAttachmentById = (issueKey: string, attachmentId: string) =>
+  invoke<unknown>("jira_upload_attachment_by_id", {
+    req: { issue_key: issueKey, attachment_id: attachmentId },
+  });
+
+// ─────────────────────────────────────────────────────────────
+// Attachments
+//
+// All file bytes live in a per-session cache dir on the Rust side. The
+// frontend only ever passes around `AttachmentRef` records keyed by id.
+// `attachment_register_bytes` covers the paste-image path (clipboard image
+// blobs have no fs path); `attachment_register_path` covers drag-drop and the
+// file picker. Both run extraction synchronously so the returned record
+// already carries the final `extracted_chars` count.
+// ─────────────────────────────────────────────────────────────
+export const attachmentRegisterBytes = (
+  sessionId: string,
+  filename: string,
+  bytes: Uint8Array,
+) =>
+  invoke<AttachmentRef>("attachment_register_bytes", {
+    sessionId,
+    filename,
+    bytes: Array.from(bytes),
+  });
+
+export const attachmentRegisterPath = (sessionId: string, path: string) =>
+  invoke<AttachmentRef>("attachment_register_path", { sessionId, path });
+
+export const attachmentRemove = (id: string) =>
+  invoke<void>("attachment_remove", { id });
+
+export const attachmentPurgeSession = (sessionId: string) =>
+  invoke<void>("attachment_purge_session", { sessionId });
+
+export const attachmentList = (sessionId: string) =>
+  invoke<AttachmentRef[]>("attachment_list", { sessionId });
 
 // ─────────────────────────────────────────────────────────────
 // AI
@@ -102,6 +149,12 @@ export interface DraftArgs {
   refine_of?: string;
   /** Per-provider model id picked in the model selector. */
   model?: string;
+  /**
+   * Ids of attachments previously registered via `attachment_register_*`.
+   * Resolved on the Rust side and routed per provider — see
+   * `src-tauri/src/ai/mod.rs::route_attachments` for the matrix.
+   */
+  attachment_ids?: string[];
 }
 
 export const aiDraft = (req: DraftArgs) => invoke<void>("ai_draft", { req });

@@ -1,3 +1,4 @@
+use crate::attachments::AttachmentRegistry;
 use once_cell::sync::OnceCell;
 use reqwest::Client;
 use std::collections::HashMap;
@@ -14,6 +15,11 @@ pub struct AppState {
     // Currently-registered global summon shortcut, so we can replace it cleanly
     // when the user picks a new combo.
     pub global_shortcut: Arc<Mutex<Option<String>>>,
+    // In-memory attachment registry. Per-draft files live on disk under
+    // ${app_cache_dir}/attachments/<session>/; this index maps ids → entries
+    // so the AI + Jira pipelines can resolve attachments without re-walking
+    // the filesystem on every send. See `attachments::AttachmentRegistry`.
+    pub attachments: AttachmentRegistry,
 }
 
 impl AppState {
@@ -28,6 +34,7 @@ impl AppState {
             ai_cancellers: Arc::new(Mutex::new(HashMap::new())),
             voice_sender: Arc::new(Mutex::new(None)),
             global_shortcut: Arc::new(Mutex::new(None)),
+            attachments: AttachmentRegistry::new(),
         }
     }
 }
