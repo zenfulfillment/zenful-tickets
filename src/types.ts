@@ -1,6 +1,6 @@
 // DTOs mirroring the Rust side. Keep in lockstep with src-tauri/src/*.
 
-export type Provider = "claude_cli" | "codex_cli" | "gemini";
+export type Provider = "claude_cli" | "codex_cli" | "gemini" | "openrouter";
 
 export interface CliStatus {
   available: boolean;
@@ -21,6 +21,7 @@ export interface SecretsStatus {
   has_gemini_key: boolean;
   has_anthropic_key: boolean;
   has_openai_key: boolean;
+  has_openrouter_key: boolean;
 }
 
 export interface SecretsPatch {
@@ -30,6 +31,7 @@ export interface SecretsPatch {
   gemini_key?: string;
   anthropic_key?: string;
   openai_key?: string;
+  openrouter_key?: string;
 }
 
 export interface JiraUser {
@@ -156,7 +158,7 @@ export interface AppSettings {
   autoAssign: boolean;
   openAfterCreate: boolean;
   // ai
-  aiEnabled: { claude: boolean; codex: boolean; gemini: boolean };
+  aiEnabled: { claude: boolean; codex: boolean; gemini: boolean; openrouter: boolean };
   defaultProvider: Provider;
   /**
    * Per-provider model preference. Each key is a Provider, each value is
@@ -192,7 +194,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultIssueType: "Story",
   autoAssign: false,
   openAfterCreate: true,
-  aiEnabled: { claude: true, codex: true, gemini: false },
+  aiEnabled: { claude: true, codex: true, gemini: false, openrouter: false },
   defaultProvider: "claude_cli",
   selectedModelByProvider: {},
   streaming: true,
@@ -215,11 +217,11 @@ export const MODELS: {
   short: string;
   vendor: string;
   color: string;
-  char: string;
 }[] = [
-  { id: "claude", provider: "claude_cli", name: "Claude (CLI)", short: "Claude", vendor: "Anthropic", color: "#d97757", char: "✻" },
-  { id: "codex", provider: "codex_cli", name: "Codex (CLI)", short: "Codex", vendor: "OpenAI", color: "#10a37f", char: "◓" },
-  { id: "gemini", provider: "gemini", name: "Gemini 2.5 Pro", short: "Gemini 2.5", vendor: "Google", color: "#4285f4", char: "◆" },
+  { id: "claude", provider: "claude_cli", name: "Claude (CLI)", short: "Claude", vendor: "Anthropic", color: "#d97757" },
+  { id: "codex", provider: "codex_cli", name: "Codex (CLI)", short: "Codex", vendor: "OpenAI", color: "#10a37f" },
+  { id: "gemini", provider: "gemini", name: "Gemini 2.5 Pro", short: "Gemini 2.5", vendor: "Google", color: "#4285f4" },
+  { id: "openrouter", provider: "openrouter", name: "OpenRouter", short: "OpenRouter", vendor: "OpenRouter", color: "#94a3b8" },
 ];
 
 /**
@@ -260,6 +262,13 @@ export const MODEL_VARIANTS: Record<Provider, ModelVariant[]> = {
     { id: "gemini-2.5-pro",        name: "Gemini 2.5 Pro",        short: "2.5 Pro",        description: "Google's flagship; best for long context." },
     { id: "gemini-2.5-flash",      name: "Gemini 2.5 Flash",      short: "2.5 Flash",      description: "Fast + cheap; good default for short drafts." },
     { id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash-Lite", short: "2.5 Flash-Lite", description: "Smallest. Very fast; lower quality on nuanced asks." },
+  ],
+  // OpenRouter variants are populated at runtime from the catalog fetch
+  // (lib/openrouter-catalog.ts). The fallback below ships in case the
+  // network is unavailable on first launch — picks a sensible default
+  // model so users aren't blocked.
+  openrouter: [
+    { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", short: "Sonnet 4", description: "Loading catalog… fallback default." },
   ],
 };
 

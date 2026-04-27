@@ -62,7 +62,20 @@ cd "$ROOT"
 # ── sanity checks ──────────────────────────────────────
 step "preflight"
 [[ -d .git ]] || die "not a git repo (run from the project root)"
-[[ -z "$(git status --porcelain)" ]] || die "working tree is dirty — commit or stash first"
+# A pre-staged CHANGELOG.md is allowed — the /release skill writes the
+# new version's section to it before invoking this script and expects
+# the bump commit to bundle the changelog. Anything else dirty is a hard
+# stop: a partial work-in-progress shouldn't ride along with a release.
+DIRTY="$(git status --porcelain)"
+if [[ -n "$DIRTY" ]]; then
+  ALLOWED_PATTERN='^(M |MM|A | M)[[:space:]]+CHANGELOG\.md$'
+  while IFS= read -r line; do
+    if ! [[ "$line" =~ $ALLOWED_PATTERN ]]; then
+      die "working tree is dirty — commit or stash first (offender: $line)"
+    fi
+  done <<< "$DIRTY"
+  ok "pre-staged CHANGELOG.md detected — will include in bump commit"
+fi
 git rev-parse --verify "$MAIN_BRANCH" >/dev/null 2>&1 || die "no local '$MAIN_BRANCH' branch"
 ! git rev-parse "$TAG" >/dev/null 2>&1 || die "tag $TAG already exists locally"
 if git ls-remote --tags origin "refs/tags/$TAG" 2>/dev/null | grep -q "refs/tags/$TAG$"; then
@@ -119,6 +132,14 @@ fi
 # ── commit on main ─────────────────────────────────────
 step "committing release bump on $MAIN_BRANCH"
 git add package.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+# Include CHANGELOG.md if the /release skill (or the operator) staged it
+# before invoking us. Done as a separate `git add` so older callers that
+# don't manage a CHANGELOG keep working.
+if [[ -f CHANGELOG.md ]] && ! git diff --quiet -- CHANGELOG.md 2>/dev/null \
+  || git diff --cached --name-only | grep -qx 'CHANGELOG.md'; then
+  git add CHANGELOG.md
+  ok "CHANGELOG.md included"
+fi
 git commit -m "release $TAG"
 ok "committed"
 

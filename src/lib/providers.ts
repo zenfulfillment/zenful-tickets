@@ -59,6 +59,12 @@ export const PROVIDERS: readonly ProviderDef[] = [
     method: "key",
     isConfigured: (s) => !!s?.has_gemini_key,
   },
+  {
+    id: "openrouter",
+    enabledKey: "openrouter",
+    method: "key",
+    isConfigured: (s) => !!s?.has_openrouter_key,
+  },
 ];
 
 export function findProvider(id: Provider): ProviderDef | undefined {

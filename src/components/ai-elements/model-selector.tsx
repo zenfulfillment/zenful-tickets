@@ -53,7 +53,24 @@ export const ModelSelectorContent = ({
     {...props}
   >
     <DialogTitle className="sr-only">{title}</DialogTitle>
-    <Command className="**:data-[slot=command-input-wrapper]:h-auto">
+    {/*
+      Strict substring filter. cmdk's default scores any subsequence
+      match — e.g. searching "GPT" against "Anthropic's flagship outputs"
+      matches because G, P, T appear in order anywhere in the string. For
+      a model picker that's wrong: searching "gpt" should not surface
+      Claude rows. Substring (case-insensitive) keeps the search intuitive
+      and lets the input doubles-as a free-text filter on vendor / id /
+      description tokens we already concat into each item's `value`.
+    */}
+    <Command
+      className="**:data-[slot=command-input-wrapper]:h-auto"
+      filter={(value, search) => {
+        const haystack = value.toLowerCase();
+        const needle = search.trim().toLowerCase();
+        if (!needle) return 1;
+        return haystack.includes(needle) ? 1 : 0;
+      }}
+    >
       {children}
     </Command>
   </DialogContent>

@@ -10,6 +10,7 @@ import { RefreshCCWIcon, SettingsIcon } from "../components/icons-animated";
 import { applyThemeWithRipple } from "../lib/theme";
 import { Icon } from "../components/Icon";
 import { Persona } from "../components/Persona";
+import { ProviderIcon } from "../components/ProviderIcon";
 import { HotkeyCapture, Menu } from "../components/primitives";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -23,6 +24,7 @@ import {
   jiraVerify,
   logsDiagnostics,
   logsReveal,
+  openrouterModelsRefresh,
   secretsClear,
   secretsUpdate,
 } from "../lib/tauri";
@@ -432,6 +434,7 @@ function AISection() {
   const { settings, setSettings, secrets, refreshSecrets } = useAppStore();
   const [detected, setDetected] = useState<DetectResult | null>(null);
   const [geminiKeyInput, setGeminiKeyInput] = useState("");
+  const [openrouterKeyInput, setOpenrouterKeyInput] = useState("");
 
   useEffect(() => {
     void aiDetectClis().then(setDetected).catch(() => null);
@@ -451,6 +454,24 @@ function AISection() {
     void aiDetectClis().then(setDetected);
   };
 
+  const saveOpenrouter = async () => {
+    if (!openrouterKeyInput.trim()) return;
+    await secretsUpdate({ openrouter_key: openrouterKeyInput.trim() });
+    setOpenrouterKeyInput("");
+    await refreshSecrets();
+    void aiDetectClis().then(setDetected);
+    // Kick off the catalog fetch immediately. Without this, the picker
+    // would stay empty until the next app restart (the startup-time
+    // refresh only runs when the key is already persisted at boot).
+    void openrouterModelsRefresh().catch(() => null);
+  };
+
+  const clearOpenrouter = async () => {
+    await secretsUpdate({ openrouter_key: "" });
+    await refreshSecrets();
+    void aiDetectClis().then(setDetected);
+  };
+
   // ModelDef joins MODELS metadata with the PROVIDERS availability rules so
   // adding a new provider only requires extending those two registries.
   type ModelDef = {
@@ -460,7 +481,6 @@ function AISection() {
     tag: string;
     method: "cli" | "key";
     color: string;
-    char: string;
     /** Configured = credentials/binary exist; independent of the on/off switch. */
     configured: boolean;
     desc: string;
@@ -480,6 +500,10 @@ function AISection() {
         return secrets?.has_gemini_key
           ? "API key configured."
           : "Add an API key from Google AI Studio.";
+      case "openrouter":
+        return secrets?.has_openrouter_key
+          ? "API key configured. Unlocks ~300 models behind one key."
+          : "Add an API key from openrouter.ai/keys to unlock ~300 models.";
     }
   };
 
@@ -494,7 +518,6 @@ function AISection() {
       tag: tagFor(meta.vendor),
       method: p.method,
       color: meta.color,
-      char: meta.char,
       configured: isProviderConfigured(p.id, secrets ?? null, detected),
       desc: describe(p.id),
     };
@@ -508,12 +531,22 @@ function AISection() {
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{
                 width: 32, height: 32, borderRadius: 9,
-                background: `linear-gradient(135deg, ${m.color}, ${m.color}cc)`,
+                // Gemini's mark is a multi-colour mask + gradient that
+                // can't be tinted via currentColor — the gradient colours
+                // are baked in. A coloured tile clashes; a white tile
+                // lets the brand colours read cleanly.
+                background: m.provider === "gemini"
+                  ? "#ffffff"
+                  : `linear-gradient(135deg, ${m.color}, ${m.color}cc)`,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                color: "white", fontSize: 16, fontWeight: 600,
-                boxShadow: `0 2px 8px ${m.color}55`,
+                color: "white",
+                boxShadow: m.provider === "gemini"
+                  ? "0 2px 8px rgba(0,0,0,0.12)"
+                  : `0 2px 8px ${m.color}55`,
                 flexShrink: 0,
-              }}>{m.char}</div>
+              }}>
+                <ProviderIcon provider={m.provider} size={16} />
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ font: "600 13.5px var(--font-text)" }}>{m.name}</span>
@@ -564,6 +597,23 @@ function AISection() {
                 )}
               </div>
             )}
+            {m.id === "openrouter" && settings.aiEnabled.openrouter && (
+              <div style={{ marginTop: 10, paddingLeft: 44, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <Input
+                  type="password"
+                  placeholder={secrets?.has_openrouter_key ? "•••••••••••••••" : "sk-or-v1-…"}
+                  value={openrouterKeyInput}
+                  onChange={(e) => setOpenrouterKeyInput(e.target.value)}
+                  style={{ flex: 1, minWidth: 200, fontFamily: "var(--font-mono)", fontSize: 12.5 }}
+                />
+                <Button variant="primary" onClick={() => void saveOpenrouter()} disabled={!openrouterKeyInput.trim()}>
+                  Save key
+                </Button>
+                {secrets?.has_openrouter_key && (
+                  <Button onClick={() => void clearOpenrouter()}>Clear</Button>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </Group>
@@ -579,7 +629,7 @@ function AISection() {
                   const m = MODELS.find((x) => x.provider === settings.defaultProvider) ?? MODELS[0];
                   return (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ color: m.color, fontSize: 14 }}>{m.char}</span>
+                      <ProviderIcon provider={m.provider} size={14} color={m.color} />
                       {m.short}
                     </span>
                   );
@@ -590,7 +640,7 @@ function AISection() {
             items={MODELS.map((m) => ({
               value: m.provider,
               label: m.name,
-              icon: <span style={{ color: m.color, fontSize: 14 }}>{m.char}</span>,
+              icon: <ProviderIcon provider={m.provider} size={14} color={m.color} />,
             }))}
             onSelect={(v) => void setSettings({ defaultProvider: v as Provider })}
           />

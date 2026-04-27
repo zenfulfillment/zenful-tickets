@@ -37,6 +37,11 @@ import {
   ModelSelectorList,
   ModelSelectorTrigger,
 } from "../components/ai-elements/model-selector";
+import {
+  groupByVendor,
+  useOpenRouterCatalog,
+  type OpenRouterModel,
+} from "../lib/openrouter-catalog";
 
 const HEADLINES = [
   "What are we shipping today?",
@@ -97,9 +102,16 @@ export function Main() {
     void aiDetectClis().then(setDetected).catch(() => setDetected(null));
   }, []);
 
+  // OpenRouter catalog — used to check the chosen model's image
+  // capability (input_modalities includes "image") so we can warn the
+  // user when they've attached an image to a non-vision model.
+  const { catalog: openrouterCatalog } = useOpenRouterCatalog();
+
   // Warn the user when they've attached an image and the active provider
-  // doesn't support vision. Per current product call: only Claude is treated
-  // as image-capable (Gemini also has vision but that's a future polish).
+  // (or the chosen OpenRouter model) doesn't support vision. Image-capable
+  // today: Claude CLI, Gemini, and any OpenRouter model whose
+  // `input_modalities` array contains "image". Codex and non-vision
+  // OpenRouter models trigger the warning.
   // Fired exactly once per provider/attachment-set transition so re-entering
   // the screen doesn't keep beeping the same warning at the user.
   const warnedKeyRef = useRef<string | null>(null);
@@ -109,24 +121,42 @@ export function Main() {
       warnedKeyRef.current = null;
       return;
     }
-    if (provider === "claude_cli") {
+
+    // Image-capable provider/model combos — short-circuit the warning.
+    if (provider === "claude_cli" || provider === "gemini") {
       warnedKeyRef.current = null;
       return;
     }
+    if (provider === "openrouter") {
+      const orModel = openrouterCatalog?.models.find((m) => m.id === modelId);
+      // Catalog not loaded yet → treat as capable (avoids a false-positive
+      // warning on first launch; the upstream model will return a 400 if
+      // it really can't accept the image).
+      const supportsImage = !orModel || orModel.input_modalities.includes("image");
+      if (supportsImage) {
+        warnedKeyRef.current = null;
+        return;
+      }
+    }
+
     const imageIds = attachments
       .filter((a) => a.kind === "image")
       .map((a) => a.id)
       .sort()
       .join(",");
-    const key = `${provider}|${imageIds}`;
+    const key = `${provider}|${modelId}|${imageIds}`;
     if (warnedKeyRef.current === key) return;
     warnedKeyRef.current = key;
 
     const providerLabel =
-      provider === "codex_cli" ? "Codex" : provider === "gemini" ? "Gemini" : "this model";
+      provider === "codex_cli"
+        ? "Codex"
+        : provider === "openrouter"
+          ? "This OpenRouter model"
+          : "This model";
     notify(`${providerLabel} can't see attached images`, {
       kind: "warning",
-      description: `Switch to Claude if you want the model to read your screenshots — otherwise only the document attachments will be passed through.`,
+      description: `Switch to a vision-capable model if you want it to read your screenshots — otherwise only the document attachments will be passed through.`,
     });
   }, [provider, attachments]);
 
@@ -781,12 +811,32 @@ function PromptModelPicker({
   onPick: (provider: Provider, modelId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const isUsable = (p: Provider) => availableProviders.includes(p);
-  const groups: { provider: Provider; vendor: string; vendorTag: string; color: string; char: string }[] = [
-    { provider: "claude_cli", vendor: "Anthropic — Claude CLI", vendorTag: "Anthropic", color: "#d97757", char: "✻" },
-    { provider: "codex_cli",  vendor: "OpenAI — Codex CLI",      vendorTag: "OpenAI",    color: "#10a37f", char: "◓" },
-    { provider: "gemini",     vendor: "Google — Gemini API",     vendorTag: "Google",    color: "#4285f4", char: "◆" },
+  const { catalog } = useOpenRouterCatalog();
+
+  // The picker only renders providers whose `enabled && configured`
+  // gate is satisfied. The "Not configured" disabled-row state was
+  // removed: it added clutter and made search noisier without giving
+  // the user anything to act on (the actionable place is Settings).
+  type GroupSpec = {
+    provider: Provider;
+    vendor: string;
+    vendorTag: string;
+    color: string;
+  };
+  const allGroups: GroupSpec[] = [
+    { provider: "claude_cli", vendor: "Anthropic — Claude CLI", vendorTag: "Anthropic",  color: "#d97757" },
+    { provider: "codex_cli",  vendor: "OpenAI — Codex CLI",     vendorTag: "OpenAI",     color: "#10a37f" },
+    { provider: "gemini",     vendor: "Google — Gemini API",    vendorTag: "Google",     color: "#4285f4" },
+    { provider: "openrouter", vendor: "OpenRouter",             vendorTag: "OpenRouter", color: "#94a3b8" },
   ];
+  const groups = allGroups.filter((g) => availableProviders.includes(g.provider));
+
+  // OpenRouter rows always use the OpenRouter SVG (regardless of the
+  // underlying vendor) so a duplicate model — say "Claude Sonnet 4"
+  // available via both Claude CLI and OpenRouter — is visually
+  // distinguishable at a glance. Color is muted/neutral for the same
+  // reason: OpenRouter is a transport, not a vendor.
+
   return (
     <ModelSelector open={open} onOpenChange={setOpen}>
       <ModelSelectorTrigger render={trigger} />
@@ -802,122 +852,216 @@ function PromptModelPicker({
         <ModelSelectorList>
           <ModelSelectorEmpty>No matching models.</ModelSelectorEmpty>
           {groups.map((g) => {
+            if (g.provider === "openrouter") {
+              return (
+                <OpenRouterGroups
+                  key={g.provider}
+                  spec={g}
+                  catalog={catalog?.models ?? []}
+                  modelId={modelId}
+                  isCurrent={provider === "openrouter"}
+                  onPick={(id) => {
+                    playUi("toggle");
+                    onPick("openrouter", id);
+                    setOpen(false);
+                  }}
+                />
+              );
+            }
             const variants = MODEL_VARIANTS[g.provider] ?? [];
-            const usable = isUsable(g.provider);
             return (
               <ModelSelectorGroup key={g.provider} heading={g.vendor}>
-                {variants.map((v) => {
-                  const selected = g.provider === provider && v.id === modelId;
-                  return (
-                    <ModelSelectorItem
-                      key={`${g.provider}-${v.id}`}
-                      value={`${g.vendorTag} ${v.name} ${v.id} ${v.description}`}
-                      disabled={!usable}
-                      onSelect={() => {
-                        if (!usable) return;
-                        // Use the same `toggle` sound the Settings
-                        // sidebar plays when switching tabs / segmented
-                        // selectors — model selection is the same kind
-                        // of "switch the active option" interaction, so
-                        // the audio feedback should match.
-                        playUi("toggle");
-                        onPick(g.provider, v.id);
-                        setOpen(false);
-                      }}
-                    >
-                      <span style={{
-                        width: 28, height: 28, flexShrink: 0,
-                        borderRadius: 8,
-                        background: usable ? `${g.color}1c` : "var(--bg-active)",
-                        color: usable ? g.color : "var(--fg-subtle)",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}>
-                        <ProviderIcon provider={g.provider} size={16} />
-                      </span>
-                      <div style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        flex: 1,
-                        minWidth: 0,
-                      }}>
-                        <span style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          font: "500 13.5px var(--font-text)",
-                          color: usable ? "var(--fg)" : "var(--fg-muted)",
-                          letterSpacing: "-0.005em",
-                        }}>
-                          <span style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}>
-                            {v.name}
-                          </span>
-                          {selected && (
-                            <span style={{
-                              flexShrink: 0,
-                              font: "600 10px var(--font-text)",
-                              color: "var(--accent)",
-                              padding: "2px 7px",
-                              background: "var(--accent-soft)",
-                              border: "0.5px solid color-mix(in oklab, var(--accent) 20%, transparent)",
-                              borderRadius: 999,
-                              textTransform: "uppercase",
-                              letterSpacing: "0.06em",
-                            }}>
-                              Current
-                            </span>
-                          )}
-                          {!usable && (
-                            <span style={{
-                              flexShrink: 0,
-                              font: "600 10px var(--font-text)",
-                              color: "var(--fg-subtle)",
-                              padding: "2px 7px",
-                              border: "0.5px dashed var(--border-strong)",
-                              borderRadius: 999,
-                              textTransform: "uppercase",
-                              letterSpacing: "0.06em",
-                            }}>
-                              Not configured
-                            </span>
-                          )}
-                        </span>
-                        <span style={{
-                          font: "400 12px var(--font-text)",
-                          color: "var(--fg-subtle)",
-                          marginTop: 2,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          letterSpacing: "-0.005em",
-                        }}>
-                          {v.description}
-                        </span>
-                      </div>
-                      <span style={{
-                        flexShrink: 0,
-                        font: "400 10.5px var(--font-mono)",
-                        color: "var(--fg-subtle)",
-                        background: "var(--bg-active)",
-                        padding: "2px 7px",
-                        borderRadius: 5,
-                        letterSpacing: "0",
-                      }}>
-                        {v.id}
-                      </span>
-                    </ModelSelectorItem>
-                  );
-                })}
+                {variants.map((v) => (
+                  <ModelRow
+                    key={`${g.provider}-${v.id}`}
+                    iconProvider={g.provider}
+                    iconColor={g.color}
+                    name={v.name}
+                    description={v.description}
+                    modelId={v.id}
+                    selected={provider === g.provider && v.id === modelId}
+                    searchValue={`${g.vendorTag} ${v.name} ${v.id} ${v.description}`}
+                    onSelect={() => {
+                      // Use the same `toggle` sound the Settings sidebar
+                      // plays when switching tabs / segmented selectors —
+                      // model selection is the same kind of "switch the
+                      // active option" interaction, so the audio feedback
+                      // should match.
+                      playUi("toggle");
+                      onPick(g.provider, v.id);
+                      setOpen(false);
+                    }}
+                  />
+                ))}
               </ModelSelectorGroup>
             );
           })}
         </ModelSelectorList>
       </ModelSelectorContent>
     </ModelSelector>
+  );
+}
+
+/** Render OpenRouter models as nested vendor subgroups under one banner. */
+function OpenRouterGroups({
+  spec,
+  catalog,
+  modelId,
+  isCurrent,
+  onPick,
+}: {
+  spec: { vendor: string; vendorTag: string; color: string };
+  catalog: OpenRouterModel[];
+  modelId: string;
+  isCurrent: boolean;
+  onPick: (id: string) => void;
+}) {
+  if (catalog.length === 0) {
+    // Catalog hasn't loaded yet — show a single placeholder row so the
+    // user knows OpenRouter is configured but the model list is on the
+    // way. The background fetch hot-swaps this once `openrouter:catalog:updated`
+    // arrives.
+    return (
+      <ModelSelectorGroup heading={spec.vendor}>
+        <ModelSelectorItem disabled value="OpenRouter loading">
+          <span style={{
+            width: 28, height: 28, flexShrink: 0,
+            borderRadius: 8,
+            background: "var(--bg-active)",
+            color: "var(--fg-muted)",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}>
+            <ProviderIcon provider="openrouter" size={16} />
+          </span>
+          <span style={{ font: "400 12.5px var(--font-text)", color: "var(--fg-muted)" }}>
+            Loading model catalog…
+          </span>
+        </ModelSelectorItem>
+      </ModelSelectorGroup>
+    );
+  }
+
+  const vendors = groupByVendor(catalog);
+  return (
+    <>
+      {vendors.map((v) => (
+        <ModelSelectorGroup key={`or-${v.vendor}`} heading={`OpenRouter · ${v.vendor}`}>
+          {v.models.map((m) => (
+            <ModelRow
+              key={`or-${m.id}`}
+              iconProvider="openrouter"
+              iconColor={spec.color}
+              name={m.name}
+              description={m.description ?? ""}
+              modelId={m.id}
+              selected={isCurrent && m.id === modelId}
+              searchValue={`OpenRouter ${v.vendor} ${m.name} ${m.id} ${m.description ?? ""}`}
+              onSelect={() => onPick(m.id)}
+            />
+          ))}
+        </ModelSelectorGroup>
+      ))}
+    </>
+  );
+}
+
+/** Single model row — used for both native providers and OpenRouter. */
+function ModelRow({
+  iconProvider,
+  iconColor,
+  name,
+  description,
+  modelId,
+  selected,
+  searchValue,
+  onSelect,
+}: {
+  iconProvider: Provider;
+  iconColor: string;
+  name: string;
+  description: string;
+  modelId: string;
+  selected: boolean;
+  searchValue: string;
+  onSelect: () => void;
+}) {
+  return (
+    <ModelSelectorItem value={searchValue} onSelect={onSelect}>
+      <span style={{
+        width: 28, height: 28, flexShrink: 0,
+        borderRadius: 8,
+        background: `${iconColor}1c`,
+        color: iconColor,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}>
+        <ProviderIcon provider={iconProvider} size={16} />
+      </span>
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minWidth: 0,
+      }}>
+        <span style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          font: "500 13.5px var(--font-text)",
+          color: "var(--fg)",
+          letterSpacing: "-0.005em",
+        }}>
+          <span style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}>
+            {name}
+          </span>
+          {selected && (
+            <span style={{
+              flexShrink: 0,
+              font: "600 10px var(--font-text)",
+              color: "var(--accent)",
+              padding: "2px 7px",
+              background: "var(--accent-soft)",
+              border: "0.5px solid color-mix(in oklab, var(--accent) 20%, transparent)",
+              borderRadius: 999,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+            }}>
+              Current
+            </span>
+          )}
+        </span>
+        {description && (
+          <span style={{
+            font: "400 12px var(--font-text)",
+            color: "var(--fg-subtle)",
+            marginTop: 2,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            letterSpacing: "-0.005em",
+          }}>
+            {description}
+          </span>
+        )}
+      </div>
+      <span style={{
+        flexShrink: 0,
+        font: "400 10.5px var(--font-mono)",
+        color: "var(--fg-subtle)",
+        background: "var(--bg-active)",
+        padding: "2px 7px",
+        borderRadius: 5,
+        letterSpacing: "0",
+      }}>
+        {modelId}
+      </span>
+    </ModelSelectorItem>
   );
 }
