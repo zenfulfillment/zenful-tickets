@@ -37,7 +37,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
 
 # Non-Tauri crates
-keyring = { version = "3", features = ["apple-native"] }
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "io-util", "sync", "time", "fs"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }

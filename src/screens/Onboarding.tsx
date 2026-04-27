@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from "@tauri-apps/plugin-notification";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Background } from "../components/Background";
 import { Icon } from "../components/Icon";
 import { Persona } from "../components/Persona";
@@ -8,6 +14,13 @@ import { Input } from "../components/ui/input";
 import { Spinner } from "../components/ui/spinner";
 import { formatComboParts } from "../lib/hotkey";
 import { secretStoreName } from "../lib/platform";
+import {
+  describeError,
+  diagnosticsString,
+  parseAppError,
+  type AppErrorPayload,
+} from "../lib/errors";
+import { notify } from "../lib/notify";
 import {
   aiDetectClis,
   jiraListProjects,
@@ -396,7 +409,7 @@ function VerifyStep({
 }) {
   type Phase = "saving" | "auth" | "done" | "error";
   const [phase, setPhase] = useState<Phase>("saving");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AppErrorPayload | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
 
   useEffect(() => {
@@ -413,8 +426,29 @@ function VerifyStep({
         setPhase("done");
         setTimeout(onSuccess, 600);
       } catch (e) {
-        setError(String(e));
+        const parsed = parseAppError(e);
+        setError(parsed);
         setPhase("error");
+
+        // Mirror the failure into the toast tray so it's still discoverable
+        // if the user clicks Back before reading the full inline panel.
+        const display = describeError(parsed, "jira-setup");
+        notify(display.headline, { kind: "error", description: display.description });
+
+        // If the window isn't focused (user tabbed away during the verify
+        // spinner), fire an OS-level notification so they don't miss it.
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          void (async () => {
+            try {
+              const granted = (await isPermissionGranted()) || (await requestPermission()) === "granted";
+              if (granted) {
+                sendNotification({ title: display.headline, body: display.description });
+              }
+            } catch {
+              // Notifications are nice-to-have; failures are non-fatal.
+            }
+          })();
+        }
       }
     })();
   }, [site, email, token, onSuccess]);
@@ -485,32 +519,125 @@ function VerifyStep({
               </div>
             </>
           ) : (
-            <>
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
-                <div style={{
-                  width: 64, height: 64, borderRadius: "50%",
-                  background: "rgba(255,69,58,0.12)",
-                  border: "0.5px solid rgba(255,69,58,0.35)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "#ff453a",
-                }}>
-                  <Icon.Alert size={24} />
-                </div>
-              </div>
-              <h1 style={{ font: "600 22px var(--font-display)", letterSpacing: "-0.02em", margin: "0 0 8px" }}>
-                Couldn't verify your Jira workspace
-              </h1>
-              <p style={{ font: "400 14px var(--font-text)", color: "var(--fg-muted)", margin: "0 0 24px", lineHeight: 1.5 }}>
-                {error}
-              </p>
-              <Button onClick={onBack}>
-                Go back and fix it
-              </Button>
-            </>
+            <ErrorPanel error={error} onBack={onBack} />
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Verify error panel ─────────────────────────────────────
+//
+// Renders a classified, actionable failure state instead of the original
+// generic "couldn't verify your Jira workspace" message. The headline +
+// description come from `describeError`; `Technical details` is collapsed by
+// default and exists so users on cryptic edge cases (and bug reporters) can
+// reach the raw payload without leaving the screen.
+
+function ErrorPanel({
+  error,
+  onBack,
+}: {
+  error: AppErrorPayload | null;
+  onBack: () => void;
+}) {
+  const [showDetails, setShowDetails] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  if (!error) {
+    return (
+      <>
+        <h1 style={{ font: "600 22px var(--font-display)", letterSpacing: "-0.02em", margin: "0 0 8px" }}>
+          Something went wrong
+        </h1>
+        <Button onClick={onBack}>Go back</Button>
+      </>
+    );
+  }
+
+  const display = describeError(error, "jira-setup");
+  const diag = diagnosticsString(error, "jira-setup");
+
+  const copyDiag = async () => {
+    try {
+      await writeText(diag);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard failures are non-fatal — the details are still visible.
+    }
+  };
+
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
+        <div style={{
+          width: 64, height: 64, borderRadius: "50%",
+          background: "rgba(255,69,58,0.12)",
+          border: "0.5px solid rgba(255,69,58,0.35)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: "#ff453a",
+        }}>
+          <Icon.Alert size={24} />
+        </div>
+      </div>
+      <h1 style={{ font: "600 22px var(--font-display)", letterSpacing: "-0.02em", margin: "0 0 8px" }}>
+        {display.headline}
+      </h1>
+      <p style={{ font: "400 14px var(--font-text)", color: "var(--fg-muted)", margin: "0 0 20px", lineHeight: 1.55 }}>
+        {display.description}
+      </p>
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 16 }}>
+        <Button variant="primary" onClick={onBack}>
+          Go back and try again
+        </Button>
+        <Button onClick={() => void copyDiag()}>
+          {copied ? <><Icon.Check size={11} /> Copied</> : <><Icon.Copy size={11} /> Copy diagnostics</>}
+        </Button>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setShowDetails((v) => !v)}
+        style={{
+          background: "transparent",
+          border: "none",
+          color: "var(--fg-subtle)",
+          font: "500 12px var(--font-text)",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+        }}
+      >
+        <Icon.Chevron size={10} dir={showDetails ? "up" : "down"} />
+        {showDetails ? "Hide" : "Show"} technical details
+      </button>
+
+      {showDetails && (
+        <pre
+          className="card scale-in"
+          style={{
+            marginTop: 10,
+            padding: 12,
+            textAlign: "left",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11.5,
+            lineHeight: 1.5,
+            color: "var(--fg-muted)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            transformOrigin: "top",
+            maxHeight: 220,
+            overflowY: "auto",
+          }}
+        >
+          {diag}
+        </pre>
+      )}
+    </>
   );
 }
 
