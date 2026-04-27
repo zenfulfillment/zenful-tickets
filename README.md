@@ -2,9 +2,10 @@
 
 # Zenful Tickets
 
-**An AI-assisted Jira ticket drafter for your desktop.**
+**An AI first Jira ticket drafter for your desktop.**
 
-Describe what needs to be built. Get a complete, editable Jira draft — title, type, priority, labels, body, and subtasks — ready to ship in seconds.
+Describe what needs to be built. Get a complete, editable Jira draft with title, type, priority, labels, body, and subtasks.
+From idea to action items in seconds.
 
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white)](https://v2.tauri.app/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
@@ -28,7 +29,7 @@ Describe what needs to be built. Get a complete, editable Jira draft — title, 
     <img alt="Download for macOS — Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" />
   </a>
   <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-macOS-x64.dmg">
-    <img alt="Download for macOS — Intel" src="https://img.shields.io/badge/macOS-Intel%20%28x64%29-555555?style=for-the-badge&logo=apple&logoColor=white" />
+    <img alt="Download for macOS — Universal" src="https://img.shields.io/badge/macOS-Universal-555555?style=for-the-badge&logo=apple&logoColor=white" />
   </a>
   <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-Windows-x64-setup.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-x64%20Installer-0078D6?style=for-the-badge&logo=windows&logoColor=white" />
@@ -47,15 +48,21 @@ Describe what needs to be built. Get a complete, editable Jira draft — title, 
 ## Table of Contents
 
 - [Zenful Tickets](#zenful-tickets)
+    - [Download the latest release](#download-the-latest-release)
   - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
   - [Features](#features)
-  - [How It Works](#how-it-works)
   - [Installation](#installation)
     - [Download a release](#download-a-release)
     - [Homebrew (macOS, planned)](#homebrew-macos-planned)
     - [From source](#from-source)
     - [macOS — first launch \& Gatekeeper](#macos--first-launch--gatekeeper)
+      - [What you'll see](#what-youll-see)
+      - [How to launch it — System Settings (macOS 13+, recommended)](#how-to-launch-it--system-settings-macos-13-recommended)
+      - [Alternative — terminal (power users)](#alternative--terminal-power-users)
+      - [Alternative — right-click → Open (older macOS only)](#alternative--right-click--open-older-macos-only)
+      - [About auto-updates](#about-auto-updates)
+      - [When will this go away?](#when-will-this-go-away)
   - [Quick Start](#quick-start)
   - [Configuration](#configuration)
   - [Architecture](#architecture)
@@ -93,35 +100,6 @@ It speaks to your existing AI tooling: the **Claude Code** and **Codex** CLIs yo
 - **Secrets in the OS keychain** — Jira tokens and API keys are stored in macOS Keychain (or the OS-equivalent), never in plaintext.
 - **Privacy-respecting telemetry** — none. The app talks only to Jira and the AI provider you choose.
 
-## How It Works
-
-```
-                                  ┌──────────────────────────┐
-   ⌘⌥T  ─────► Window summons ─►  │   "What are we shipping  │
-                                  │         today?"          │
-                                  └──────────┬───────────────┘
-                                             │  prompt + mode + model
-                                             ▼
-              ┌──────────────┐    ┌────────────────────────────┐    ┌─────────────┐
-              │  Claude CLI  │ ◄──┤   Rust dispatcher          ├──► │  Gemini API │
-              └──────────────┘    │   (streams stdout/SSE)     │    └─────────────┘
-              ┌──────────────┐    └────────────┬───────────────┘
-              │  Codex CLI   │ ◄───────────────┘
-              └──────────────┘                 ▼
-                                  ┌──────────────────────────┐
-                                  │  Streaming Markdown +    │
-                                  │  trailing JSON sidecar   │
-                                  │  { title, type,          │
-                                  │    priority, labels,     │
-                                  │    subtasks[] }          │
-                                  └──────────┬───────────────┘
-                                             ▼
-                                  ┌──────────────────────────┐
-                                  │  Editable Draft screen   │
-                                  │  → Create in Jira        │
-                                  │     (REST v3 + ADF)      │
-                                  └──────────────────────────┘
-```
 
 ## Installation
 
