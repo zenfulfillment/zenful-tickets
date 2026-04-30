@@ -12,6 +12,7 @@ import type {
   JiraUser,
   ParsedTicket,
   Provider,
+  ReferenceEntry,
   SecretsPatch,
   SecretsStatus,
 } from "../types";
@@ -135,6 +136,21 @@ export const attachmentList = (sessionId: string) =>
   invoke<AttachmentRef[]>("attachment_list", { sessionId });
 
 // ─────────────────────────────────────────────────────────────
+// Reference files (DEV mode only)
+// ─────────────────────────────────────────────────────────────
+export const referenceRegisterPath = (sessionId: string, path: string) =>
+  invoke<ReferenceEntry>("reference_register_path", { sessionId, path });
+
+export const referenceRemove = (sessionId: string, id: string) =>
+  invoke<void>("reference_remove", { sessionId, id });
+
+export const referencePurgeSession = (sessionId: string) =>
+  invoke<void>("reference_purge_session", { sessionId });
+
+export const referenceList = (sessionId: string) =>
+  invoke<ReferenceEntry[]>("reference_list", { sessionId });
+
+// ─────────────────────────────────────────────────────────────
 // AI
 // ─────────────────────────────────────────────────────────────
 export const aiDetectClis = () => invoke<DetectResult>("ai_detect_clis");
@@ -155,6 +171,11 @@ export interface DraftArgs {
    * `src-tauri/src/ai/mod.rs::route_attachments` for the matrix.
    */
   attachment_ids?: string[];
+  /**
+   * Reference file/folder ids for DEV mode. Content is read and injected
+   * into the prompt as analysis context. NEVER uploaded to Jira.
+   */
+  reference_ids?: string[];
 }
 
 export const aiDraft = (req: DraftArgs) => invoke<void>("ai_draft", { req });

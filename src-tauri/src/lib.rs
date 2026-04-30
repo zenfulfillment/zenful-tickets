@@ -2,6 +2,7 @@ mod ai;
 mod attachments;
 mod error;
 mod jira;
+mod reference_files;
 mod secrets;
 mod speech;
 mod state;
@@ -417,6 +418,11 @@ pub fn run() {
             attachments::attachment_purge_session,
             attachments::attachment_list,
             attachments::attachment_list_all,
+            // reference files (DEV mode only)
+            reference_files::reference_register_path,
+            reference_files::reference_remove,
+            reference_files::reference_purge_session,
+            reference_files::reference_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

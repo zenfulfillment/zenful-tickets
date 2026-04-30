@@ -98,6 +98,19 @@ export interface AttachmentRef {
   preview_data_url?: string | null;
 }
 
+/**
+ * Reference file/folder for DEV mode. These are local paths whose content
+ * is read and injected into the AI prompt as analysis context. They are
+ * NEVER uploaded to Jira.
+ */
+export interface ReferenceEntry {
+  id: string;
+  session_id: string;
+  path: string;
+  is_directory: boolean;
+  label: string;
+}
+
 export interface CreateIssueResponse {
   id: string;
   key: string;

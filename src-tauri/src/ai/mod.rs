@@ -64,6 +64,11 @@ pub struct DraftRequest {
     /// `route_attachments`).
     #[serde(default)]
     pub attachment_ids: Vec<String>,
+    /// Reference file/folder ids for DEV mode. These are local paths whose
+    /// content is read and injected into the prompt as analysis context.
+    /// They are NEVER uploaded to Jira.
+    #[serde(default)]
+    pub reference_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -227,6 +232,24 @@ pub async fn ai_draft(
     let user = match route.text_payload {
         Some(suffix) => format!("{base_user}{suffix}"),
         None => base_user,
+    };
+
+    // Append reference files/folders content for DEV mode analysis context.
+    let user = if req.reference_ids.is_empty() {
+        user
+    } else {
+        let ref_payload = state.references.build_payload_for_ids(&req.reference_ids).await;
+        match ref_payload {
+            Some(rp) => {
+                log::info!(
+                    "ai_draft references: count={} payload_chars={}",
+                    req.reference_ids.len(),
+                    rp.len()
+                );
+                format!("{user}{rp}")
+            }
+            None => user,
+        }
     };
 
     // Spawn the provider pipeline.
