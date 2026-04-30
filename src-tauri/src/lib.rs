@@ -366,6 +366,17 @@ pub fn run() {
                     ai::openrouter_models::refresh_in_background(app.handle().clone());
                 }
             }
+
+            // Initialize OpenCode model catalog in the background if the CLI
+            // is detected. Picker reads from disk cache instantly and hot-swaps
+            // via `opencode:catalog:updated` when the background refresh lands.
+            if which::which("opencode").is_ok() {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    ai::opencode_models::init_catalog(app_handle).await;
+                });
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -407,6 +418,8 @@ pub fn run() {
             ai::ai_open_login,
             ai::openrouter_models::openrouter_models_get,
             ai::openrouter_models::openrouter_models_refresh,
+            ai::opencode_models::opencode_models_get,
+            ai::opencode_models::opencode_models_refresh,
             // voice
             speech::speech_start,
             speech::speech_stop,

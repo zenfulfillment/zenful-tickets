@@ -65,6 +65,12 @@ export const PROVIDERS: readonly ProviderDef[] = [
     method: "key",
     isConfigured: (s) => !!s?.has_openrouter_key,
   },
+  {
+    id: "opencode",
+    enabledKey: "opencode",
+    method: "cli",
+    isConfigured: (_s, d) => !!d?.opencode.available,
+  },
 ];
 
 export function findProvider(id: Provider): ProviderDef | undefined {

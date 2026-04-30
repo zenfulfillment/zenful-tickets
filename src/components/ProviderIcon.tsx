@@ -188,6 +188,25 @@ export function ProviderIcon({
           />
         </svg>
       );
+    case "opencode":
+      // OpenCode official mark — two-tone "O" shape. The primary fill uses
+      // currentColor so it adapts to the surrounding context (trigger chip,
+      // dialog tile, etc). The secondary fill is a muted variant of the
+      // primary to maintain the two-tone visual identity.
+      return (
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 240 300"
+          width={size * 1.25}
+          height={size * 1.25}
+          aria-hidden
+          style={sharedSvgStyle}
+          className={className}
+        >
+          <path d="M180 240H60V120H180V240Z" fill="currentColor" opacity="0.35" />
+          <path d="M180 60H60V240H180V60ZM240 300H0V0H240V300Z" fill="currentColor" />
+        </svg>
+      );
     case "gemini": {
       // Official Gemini brand mark — multi-colour mask + filtered
       // gradient. Tinting has no effect (every fill is baked-in

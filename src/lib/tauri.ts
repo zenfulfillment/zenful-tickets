@@ -181,7 +181,7 @@ export interface DraftArgs {
 export const aiDraft = (req: DraftArgs) => invoke<void>("ai_draft", { req });
 export const aiCancel = (requestId: string) =>
   invoke<void>("ai_cancel", { requestId });
-export const aiOpenLogin = (provider: "claude" | "codex") =>
+export const aiOpenLogin = (provider: "claude" | "codex" | "opencode") =>
   invoke<void>("ai_open_login", { provider });
 
 // ─────────────────────────────────────────────────────────────
@@ -218,6 +218,32 @@ export const openrouterModelsGet = () =>
   invoke<OpenRouterCatalog | null>("openrouter_models_get");
 export const openrouterModelsRefresh = () =>
   invoke<void>("openrouter_models_refresh");
+
+// ─────────────────────────────────────────────────────────────
+// OpenCode catalog
+// ─────────────────────────────────────────────────────────────
+
+export interface OpenCodeModel {
+  id: string;
+  providerID: string;
+  name: string;
+  family?: string | null;
+  cost?: unknown;
+  limit?: { context?: number | null };
+  capabilities?: { reasoning?: boolean | null; attachment?: boolean | null };
+  variants: Record<string, unknown>;
+  description: string;
+}
+
+export interface OpenCodeCatalog {
+  models: OpenCodeModel[];
+  fetched_at: string;
+}
+
+export const opencodeModelsGet = () =>
+  invoke<OpenCodeCatalog | null>("opencode_models_get");
+export const opencodeModelsRefresh = () =>
+  invoke<OpenCodeCatalog>("opencode_models_refresh");
 
 // ─────────────────────────────────────────────────────────────
 // Global hotkey

@@ -1,6 +1,6 @@
 // DTOs mirroring the Rust side. Keep in lockstep with src-tauri/src/*.
 
-export type Provider = "claude_cli" | "codex_cli" | "gemini" | "openrouter";
+export type Provider = "claude_cli" | "codex_cli" | "gemini" | "openrouter" | "opencode";
 
 export interface CliStatus {
   available: boolean;
@@ -12,6 +12,7 @@ export interface DetectResult {
   claude: CliStatus;
   codex: CliStatus;
   gemini: { has_key: boolean };
+  opencode: CliStatus;
 }
 
 export interface SecretsStatus {
@@ -171,7 +172,7 @@ export interface AppSettings {
   autoAssign: boolean;
   openAfterCreate: boolean;
   // ai
-  aiEnabled: { claude: boolean; codex: boolean; gemini: boolean; openrouter: boolean };
+  aiEnabled: { claude: boolean; codex: boolean; gemini: boolean; openrouter: boolean; opencode: boolean };
   defaultProvider: Provider;
   /**
    * Per-provider model preference. Each key is a Provider, each value is
@@ -207,7 +208,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultIssueType: "Story",
   autoAssign: false,
   openAfterCreate: true,
-  aiEnabled: { claude: true, codex: true, gemini: false, openrouter: false },
+  aiEnabled: { claude: true, codex: true, gemini: false, openrouter: false, opencode: true },
   defaultProvider: "claude_cli",
   selectedModelByProvider: {},
   streaming: true,
@@ -235,6 +236,7 @@ export const MODELS: {
   { id: "codex", provider: "codex_cli", name: "Codex (CLI)", short: "Codex", vendor: "OpenAI", color: "#10a37f" },
   { id: "gemini", provider: "gemini", name: "Gemini 2.5 Pro", short: "Gemini 2.5", vendor: "Google", color: "#4285f4" },
   { id: "openrouter", provider: "openrouter", name: "OpenRouter", short: "OpenRouter", vendor: "OpenRouter", color: "#94a3b8" },
+  { id: "opencode", provider: "opencode", name: "OpenCode", short: "OpenCode", vendor: "OpenCode", color: "#6366f1" },
 ];
 
 /**
@@ -282,6 +284,9 @@ export const MODEL_VARIANTS: Record<Provider, ModelVariant[]> = {
   // model so users aren't blocked.
   openrouter: [
     { id: "anthropic/claude-sonnet-4", name: "Claude Sonnet 4", short: "Sonnet 4", description: "Loading catalog… fallback default." },
+  ],
+  opencode: [
+    { id: "opencode/claude-sonnet-4-6", name: "Claude Sonnet 4.6", short: "Sonnet 4.6", description: "Loading catalog… fallback default." },
   ],
 };
 

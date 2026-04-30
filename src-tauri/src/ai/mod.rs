@@ -12,6 +12,7 @@ pub mod cli;
 pub mod gemini;
 pub mod openrouter;
 pub mod openrouter_models;
+pub mod opencode_models;
 pub mod prompt;
 
 use crate::attachments::{self, AttachmentKind, ResolvedAttachment};
@@ -36,6 +37,7 @@ pub enum Provider {
     CodexCli,
     Gemini,
     OpenRouter,
+    OpenCode,
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,6 +150,7 @@ pub struct DetectResult {
     pub claude: cli::CliStatus,
     pub codex: cli::CliStatus,
     pub gemini: GeminiStatus,
+    pub opencode: cli::CliStatus,
 }
 
 #[derive(Debug, Serialize)]
@@ -163,7 +166,8 @@ pub struct GeminiStatus {
 pub async fn ai_detect_clis() -> AppResult<DetectResult> {
     let claude_fut = cli::probe_cli("claude");
     let codex_fut = cli::probe_cli("codex");
-    let (claude, codex) = tokio::join!(claude_fut, codex_fut);
+    let opencode_fut = cli::probe_cli("opencode");
+    let (claude, codex, opencode) = tokio::join!(claude_fut, codex_fut, opencode_fut);
     let has_gemini = secrets::load()
         .map(|s| s.gemini_key.as_deref().is_some_and(|k| !k.is_empty()))
         .unwrap_or(false);
@@ -171,6 +175,7 @@ pub async fn ai_detect_clis() -> AppResult<DetectResult> {
         claude,
         codex,
         gemini: GeminiStatus { has_key: has_gemini },
+        opencode,
     })
 }
 
@@ -277,6 +282,7 @@ pub async fn ai_draft(
                     .ok_or_else(|| AppError::Ai("openrouter API key not set".into()))?;
                 openrouter::stream(app_for_or, http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
             }
+            Provider::OpenCode => cli::stream(cli::Cli::OpenCode, system, user, model, image_paths, chunks_tx, cancel_rx).await,
         }
     });
 
@@ -420,6 +426,7 @@ pub async fn ai_expand_subtasks(
                     .ok_or_else(|| AppError::Ai("openrouter API key not set".into()))?;
                 openrouter::stream(app_for_or, http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
             }
+            Provider::OpenCode => cli::stream(cli::Cli::OpenCode, system, user, model, image_paths, chunks_tx, cancel_rx).await,
         }
     });
 
@@ -536,17 +543,8 @@ fn route_attachments(provider: Provider, resolved: &[ResolvedAttachment]) -> Att
         }
         match provider {
             Provider::ClaudeCli => image_paths.push(a.path.clone()),
-            // Codex has no vision today — the frontend's image-attached
-            // warning toast (see Main.tsx) tells the user the image will be
-            // skipped. We honour that contract here by not even mentioning
-            // the image to the model. Document extraction still flows
-            // through `text_payload` so non-image attachments remain useful.
             Provider::CodexCli => {}
-            // Gemini and OpenRouter both consume `inline_attachments` —
-            // their respective `stream` modules each translate the records
-            // into the right multimodal part shape (Gemini `inline_data`
-            // vs OpenRouter `image_url` / `file`). OpenRouter additionally
-            // gates images on the chosen model's `input_modalities`.
+            Provider::OpenCode => image_paths.push(a.path.clone()),
             Provider::Gemini | Provider::OpenRouter => inline_attachments.push(a.clone()),
         }
     }

@@ -504,6 +504,10 @@ function AISection() {
         return secrets?.has_openrouter_key
           ? "API key configured. Unlocks ~300 models behind one key."
           : "Add an API key from openrouter.ai/keys to unlock ~300 models.";
+      case "opencode":
+        return detected?.opencode.available
+          ? `Detected at ${detected.opencode.path} · ${detected.opencode.version ?? "unknown version"}`
+          : "Not detected. Install with: npm i -g opencode";
     }
   };
 
