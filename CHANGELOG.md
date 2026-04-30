@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] — 2026-04-30
+
+### Added
+- **OpenCode CLI**: new AI provider with dynamic model catalog (~50 models), disk caching, background refresh, and manual refresh button in the picker
+- **Onboarding**: OpenCode CLI detection and setup step alongside Claude, Codex, and Gemini
+- **DEV mode reference files**: local source code paths injected into the AI prompt as analysis context (read-only, never uploaded to Jira)
+- **DEV/PO prompt overhaul**: DEV voice rewritten as senior tech lead with Technical Approach, Dependencies, Testing Strategy, and Risks sections; PO voice enhanced with Success Metrics and User Impact Scope
+
+### Fixed
+- **Windows**: terminal window no longer flashes during CLI execution (missing `CommandExt` import for `CREATE_NO_WINDOW`)
+
 ## [0.1.11] — 2026-04-28
 
 ### Added
