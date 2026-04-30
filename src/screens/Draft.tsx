@@ -123,7 +123,10 @@ export function Draft() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Reference files/folders for DEV mode analysis context.
-  const [references, setReferences] = useState<ReferenceEntry[]>([]);
+  // Initialized from the context passed by Main (if any).
+  const [references, setReferences] = useState<ReferenceEntry[]>(
+    ctx.references ?? [],
+  );
 
   // Step-by-step "create pipeline" overlay state. We only render the modal
   // while the pipeline is active OR finished (so the user can pick "Open
@@ -273,12 +276,12 @@ export function Draft() {
 
   // Reference files cleanup on unmount.
   useEffect(() => {
-    const sid = ctx.attachmentSessionId;
+    const sid = ctx.referenceSessionId ?? ctx.attachmentSessionId;
     if (!sid) return;
     return () => {
       void referencePurgeSession(sid).catch(() => {});
     };
-  }, [ctx.attachmentSessionId]);
+  }, [ctx.referenceSessionId, ctx.attachmentSessionId]);
 
   // ── Auth-error helpers ──────────────────────────────────────
   const authProvider = detectAuthProvider(streamError, ctx.provider);
@@ -462,10 +465,11 @@ export function Draft() {
     });
     if (!picked) return;
     const list = Array.isArray(picked) ? picked : [picked];
+    const sid = ctx.referenceSessionId ?? ctx.attachmentSessionId ?? "refs";
     for (const p of list) {
       const path = String(p);
       try {
-        const entry = await referenceRegisterPath(ctx.attachmentSessionId ?? "refs", path);
+        const entry = await referenceRegisterPath(sid, path);
         setReferences((cur) => [...cur, entry]);
       } catch (e) {
         console.warn("failed to register reference:", e);
@@ -474,8 +478,9 @@ export function Draft() {
   };
 
   const handleRemoveReference = async (id: string) => {
+    const sid = ctx.referenceSessionId ?? ctx.attachmentSessionId ?? "refs";
     try {
-      await referenceRemove(ctx.attachmentSessionId ?? "refs", id);
+      await referenceRemove(sid, id);
     } catch {
       // best-effort
     }

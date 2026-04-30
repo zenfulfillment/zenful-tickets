@@ -25,11 +25,8 @@ From idea to action items in seconds.
 ### Download the latest release
 
 <p>
-  <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-macOS-arm64.dmg">
-    <img alt="Download for macOS — Apple Silicon" src="https://img.shields.io/badge/macOS-Apple%20Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" />
-  </a>
-  <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-macOS-x64.dmg">
-    <img alt="Download for macOS — Universal" src="https://img.shields.io/badge/macOS-Universal-555555?style=for-the-badge&logo=apple&logoColor=white" />
+  <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-macOS-universal.dmg">
+    <img alt="Download for macOS — Universal" src="https://img.shields.io/badge/macOS-Universal-000000?style=for-the-badge&logo=apple&logoColor=white" />
   </a>
   <a href="https://github.com/zenfulfillment/zenful-tickets/releases/latest/download/Zenful-Tickets-Windows-x64-setup.exe">
     <img alt="Download for Windows" src="https://img.shields.io/badge/Windows-x64%20Installer-0078D6?style=for-the-badge&logo=windows&logoColor=white" />
@@ -105,7 +102,7 @@ It speaks to your existing AI tooling: the **Claude Code** and **Codex** CLIs yo
 
 ### Download a release
 
-Pre-built signed binaries for macOS (Apple Silicon + Intel), Linux (x64 AppImage), and Windows (x64 MSI/EXE) are published to the [Releases page](https://github.com/zenfulfillment/zenful-tickets/releases). The app self-updates from there.
+Pre-built binaries for macOS (universal), Linux (x64 AppImage), and Windows (x64 MSI/EXE) are published to the [Releases page](https://github.com/zenfulfillment/zenful-tickets/releases). The app self-updates from there.
 
 ### Homebrew (macOS, planned)
 
@@ -333,7 +330,7 @@ Output bundles land in `src-tauri/target/release/bundle/`.
 
 ## Releasing
 
-CI publishes signed releases for macOS (arm64 + x64), Linux (x64), and Windows (x64) via [`tauri-action`](https://github.com/tauri-apps/tauri-action).
+CI publishes releases for macOS (universal), Linux (x64), and Windows (x64) via [`tauri-action`](https://github.com/tauri-apps/tauri-action).
 
 The recommended path is the bundled `scripts/release.sh` helper, which atomically bumps every version manifest, commits on `main`, fast-forwards the `release` branch, tags, and pushes:
 

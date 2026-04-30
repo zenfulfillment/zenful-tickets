@@ -1,7 +1,7 @@
 name: release
 
-# Builds zenfultickets for macOS (arm64 + x64), Windows (x64), and Linux (x64)
-# using the official `tauri-apps/tauri-action`, signs each artifact, and publishes
+# Builds zenfultickets for macOS (universal), Windows (x64), and Linux (x64)
+# using the official `tauri-apps/tauri-action`, and publishes
 # a GitHub Release with bundles + `latest.json` for the auto-updater.
 #
 # Pattern follows: https://v2.tauri.app/distribute/pipelines/github/
@@ -84,10 +84,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Universal macOS build — single binary runs natively on both
+          # Apple Silicon (arm64) and Intel (x86_64).
           - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
+            args: '--target universal-apple-darwin'
           - platform: 'ubuntu-22.04'
             args: ''
           - platform: 'windows-latest'
@@ -117,15 +117,12 @@ jobs:
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
+          # Universal macOS requires both architectures.
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      # IMPORTANT: include matrix.args in the cache key. Without it, both
-      # macOS jobs (`--target aarch64-apple-darwin` and
-      # `--target x86_64-apple-darwin`) run on the same `macos-latest` image
-      # and rust-cache keys default to `${{ runner.os }}` + Cargo.lock —
-      # which means the two architectures clobber each other's caches. The
-      # symptom is one of the two macOS .dmg files (usually arm64) shipping
-      # mis-targeted artifacts that fail to launch on the user's machine.
+      # Universal macOS build — single matrix entry, both architectures
+      # included via --target universal-apple-darwin. Cache key includes
+      # matrix.args so it stays distinct from other platforms.
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
@@ -188,9 +185,8 @@ jobs:
           # that's missing platforms). Genuinely platform-skipped entries
           # belong in `optional_mirrors` below.
           required_mirrors=(
-            "Zenful-Tickets-macOS-arm64.dmg|*aarch64.dmg"
-            "Zenful-Tickets-macOS-x64.dmg|*x64.dmg"
-            "Zenful-Tickets-Windows-x64-setup.exe|*x64-setup.exe"
+            "Zenful-Tickets-macOS-universal.dmg|*universal.dmg"
+            "Zenful-Tickets-Windows-x64.setup.exe|*x64-setup.exe"
             "Zenful-Tickets-Linux-x64.AppImage|*amd64.AppImage"
           )
 
