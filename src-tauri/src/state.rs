@@ -1,11 +1,12 @@
 use crate::attachments::AttachmentRegistry;
+use crate::reference_files::ReferenceRegistry;
 use once_cell::sync::OnceCell;
 use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
-// Shared app state carried through Tauri's `State<AppState>`.
+/// Shared app state carried through Tauri's `State<AppState>`.
 pub struct AppState {
     pub http: Client,
     // Cancellation senders for in-flight AI streams, keyed by request id.
@@ -20,6 +21,10 @@ pub struct AppState {
     // so the AI + Jira pipelines can resolve attachments without re-walking
     // the filesystem on every send. See `attachments::AttachmentRegistry`.
     pub attachments: AttachmentRegistry,
+    // Reference files/folders for DEV mode. These are local paths whose
+    // content is read and injected into the AI prompt as analysis context.
+    // They are NEVER uploaded to Jira.
+    pub references: ReferenceRegistry,
 }
 
 impl AppState {
@@ -35,6 +40,7 @@ impl AppState {
             voice_sender: Arc::new(Mutex::new(None)),
             global_shortcut: Arc::new(Mutex::new(None)),
             attachments: AttachmentRegistry::new(),
+            references: ReferenceRegistry::new(),
         }
     }
 }

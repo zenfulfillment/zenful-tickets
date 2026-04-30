@@ -42,6 +42,7 @@ import {
   useOpenRouterCatalog,
   type OpenRouterModel,
 } from "../lib/openrouter-catalog";
+import { useOpenCodeCatalog } from "../lib/opencode-catalog";
 
 const HEADLINES = [
   "What are we shipping today?",
@@ -812,6 +813,7 @@ function PromptModelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const { catalog } = useOpenRouterCatalog();
+  const { grouped: opencodeGroups, loading: opencodeLoading, refresh: opencodeRefresh } = useOpenCodeCatalog();
 
   // The picker only renders providers whose `enabled && configured`
   // gate is satisfied. The "Not configured" disabled-row state was
@@ -828,6 +830,7 @@ function PromptModelPicker({
     { provider: "codex_cli",  vendor: "OpenAI — Codex CLI",     vendorTag: "OpenAI",     color: "#10a37f" },
     { provider: "gemini",     vendor: "Google — Gemini API",    vendorTag: "Google",     color: "#4285f4" },
     { provider: "openrouter", vendor: "OpenRouter",             vendorTag: "OpenRouter", color: "#94a3b8" },
+    { provider: "opencode",   vendor: "OpenCode",               vendorTag: "OpenCode",   color: "#6366f1" },
   ];
   const groups = allGroups.filter((g) => availableProviders.includes(g.provider));
 
@@ -868,6 +871,24 @@ function PromptModelPicker({
                 />
               );
             }
+            if (g.provider === "opencode") {
+              return (
+                <OpenCodeGroups
+                  key={g.provider}
+                  spec={g}
+                  grouped={opencodeGroups}
+                  loading={opencodeLoading}
+                  modelId={modelId}
+                  isCurrent={provider === "opencode"}
+                  onPick={(id) => {
+                    playUi("toggle");
+                    onPick("opencode", id);
+                    setOpen(false);
+                  }}
+                  onRefresh={opencodeRefresh}
+                />
+              );
+            }
             const variants = MODEL_VARIANTS[g.provider] ?? [];
             return (
               <ModelSelectorGroup key={g.provider} heading={g.vendor}>
@@ -882,11 +903,6 @@ function PromptModelPicker({
                     selected={provider === g.provider && v.id === modelId}
                     searchValue={`${g.vendorTag} ${v.name} ${v.id} ${v.description}`}
                     onSelect={() => {
-                      // Use the same `toggle` sound the Settings sidebar
-                      // plays when switching tabs / segmented selectors —
-                      // model selection is the same kind of "switch the
-                      // active option" interaction, so the audio feedback
-                      // should match.
                       playUi("toggle");
                       onPick(g.provider, v.id);
                       setOpen(false);
@@ -963,6 +979,91 @@ function OpenRouterGroups({
           ))}
         </ModelSelectorGroup>
       ))}
+    </>
+  );
+}
+
+/** Render OpenCode models as nested provider subgroups under one banner. */
+function OpenCodeGroups({
+  spec,
+  grouped,
+  loading,
+  modelId,
+  isCurrent,
+  onPick,
+  onRefresh,
+}: {
+  spec: { vendor: string; vendorTag: string; color: string };
+  grouped: { providerId: string; label: string; models: { id: string; name: string; description: string }[] }[];
+  loading: boolean;
+  modelId: string;
+  isCurrent: boolean;
+  onPick: (id: string) => void;
+  onRefresh: () => void;
+}) {
+  if (loading && grouped.length === 0) {
+    return (
+      <ModelSelectorGroup heading={spec.vendor}>
+        <ModelSelectorItem disabled value="OpenCode loading">
+          <span style={{
+            width: 28, height: 28, flexShrink: 0,
+            borderRadius: 8,
+            background: "var(--bg-active)",
+            color: "var(--fg-muted)",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}>
+            <ProviderIcon provider="opencode" size={16} />
+          </span>
+          <span style={{ font: "400 12.5px var(--font-text)", color: "var(--fg-muted)" }}>
+            Loading model catalog…
+          </span>
+        </ModelSelectorItem>
+      </ModelSelectorGroup>
+    );
+  }
+
+  return (
+    <>
+      {grouped.map((g) => (
+        <ModelSelectorGroup key={`oc-${g.providerId}`} heading={g.label}>
+          {g.models.map((m) => (
+            <ModelRow
+              key={`oc-${m.id}`}
+              iconProvider="opencode"
+              iconColor={spec.color}
+              name={m.name}
+              description={m.description}
+              modelId={m.id}
+              selected={isCurrent && m.id === modelId}
+              searchValue={`OpenCode ${g.label} ${m.name} ${m.id}`}
+              onSelect={() => onPick(m.id)}
+            />
+          ))}
+        </ModelSelectorGroup>
+      ))}
+      <div style={{ padding: "4px 8px", display: "flex", justifyContent: "flex-end" }}>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onRefresh();
+          }}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--fg-muted)",
+            cursor: "pointer",
+            font: "400 12px var(--font-text)",
+            padding: "4px 8px",
+            borderRadius: 4,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--fg)")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--fg-muted)")}
+        >
+          ↻ Refresh catalog
+        </button>
+      </div>
     </>
   );
 }

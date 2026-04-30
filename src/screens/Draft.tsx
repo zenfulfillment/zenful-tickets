@@ -29,6 +29,9 @@ import {
   jiraUploadAttachmentById,
   attachmentPurgeSession,
   attachmentRemove,
+  referenceRegisterPath,
+  referenceRemove,
+  referencePurgeSession,
   listenDraft,
   type SubtaskExpansion,
 } from "../lib/tauri";
@@ -56,6 +59,7 @@ import {
   type JiraUser,
   type ParsedTicket,
   type Provider,
+  type ReferenceEntry,
 } from "../types";
 
 interface MetaState {
@@ -117,6 +121,9 @@ export function Draft() {
     ctx.attachments ?? [],
   );
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // Reference files/folders for DEV mode analysis context.
+  const [references, setReferences] = useState<ReferenceEntry[]>([]);
 
   // Step-by-step "create pipeline" overlay state. We only render the modal
   // while the pipeline is active OR finished (so the user can pick "Open
@@ -233,6 +240,7 @@ export function Draft() {
         custom_system_prompt: settings.systemPrompt || undefined,
         model: ctx.model || undefined,
         attachment_ids: promptAttachments.map((a) => a.id),
+        reference_ids: references.map((r) => r.id),
       });
     } catch (e) {
       if (!isCurrent()) return;
@@ -260,6 +268,15 @@ export function Draft() {
     if (!sid) return;
     return () => {
       void attachmentPurgeSession(sid).catch(() => {});
+    };
+  }, [ctx.attachmentSessionId]);
+
+  // Reference files cleanup on unmount.
+  useEffect(() => {
+    const sid = ctx.attachmentSessionId;
+    if (!sid) return;
+    return () => {
+      void referencePurgeSession(sid).catch(() => {});
     };
   }, [ctx.attachmentSessionId]);
 
@@ -415,6 +432,7 @@ export function Draft() {
         refine_of: baseDraftMd,
         model: ctx.model || undefined,
         attachment_ids: promptAttachments.map((a) => a.id),
+        reference_ids: references.map((r) => r.id),
       });
       setRefineText("");
     } catch (e) {
@@ -435,6 +453,33 @@ export function Draft() {
     if (!picked) return;
     const list = Array.isArray(picked) ? picked : [picked];
     setAttachments((cur) => [...cur, ...list.map((p) => String(p))]);
+  };
+
+  const handleAddReference = async () => {
+    const picked = await openDialog({
+      multiple: true,
+      directory: true,
+    });
+    if (!picked) return;
+    const list = Array.isArray(picked) ? picked : [picked];
+    for (const p of list) {
+      const path = String(p);
+      try {
+        const entry = await referenceRegisterPath(ctx.attachmentSessionId ?? "refs", path);
+        setReferences((cur) => [...cur, entry]);
+      } catch (e) {
+        console.warn("failed to register reference:", e);
+      }
+    }
+  };
+
+  const handleRemoveReference = async (id: string) => {
+    try {
+      await referenceRemove(ctx.attachmentSessionId ?? "refs", id);
+    } catch {
+      // best-effort
+    }
+    setReferences((cur) => cur.filter((r) => r.id !== id));
   };
 
   const handleCreate = async () => {
@@ -995,6 +1040,73 @@ export function Draft() {
                 setAttachments((a) => a.filter((_, j) => j !== i))
               }
             />
+          )}
+
+          {/* Reference files/folders — DEV mode only. Local source code
+              paths whose content is read for AI analysis context. NEVER
+              uploaded to Jira. */}
+          {ctx.mode === "DEV" && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ font: "600 11px var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--fg-muted)" }}>
+                  Reference files
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleAddReference()}
+                  style={{ font: "500 11.5px var(--font-text)", color: "var(--accent)", background: "none", border: "none", cursor: "pointer", padding: "2px 6px", borderRadius: 4 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
+                >
+                  + Add folder
+                </button>
+              </div>
+              {references.length === 0 && (
+                <div style={{ font: "400 12px var(--font-text)", color: "var(--fg-muted)", lineHeight: 1.5 }}>
+                  Add local folders for the AI to analyze as context. Files are read-only — no changes will be made.
+                </div>
+              )}
+              {references.map((r) => (
+                <div
+                  key={r.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "6px 8px", borderRadius: 6,
+                    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
+                    marginBottom: 4,
+                  }}
+                >
+                  <span style={{ color: "var(--fg-muted)", flexShrink: 0 }}>
+                    <Icon.Folder size={12} />
+                  </span>
+                  <span
+                    style={{
+                      flex: 1, font: "400 12px var(--font-mono)",
+                      color: "var(--fg)", overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}
+                    title={r.path}
+                  >
+                    {r.label}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveReference(r.id)}
+                    style={{
+                      width: 16, height: 16, border: 0, padding: 0,
+                      borderRadius: 3, background: "transparent",
+                      color: "var(--fg-muted)", cursor: "pointer",
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      opacity: 0.6, flexShrink: 0,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.color = "#ff453a"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.6"; e.currentTarget.style.color = "var(--fg-muted)"; }}
+                  >
+                    <Icon.X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
 
           {createError && (

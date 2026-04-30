@@ -2,6 +2,7 @@ mod ai;
 mod attachments;
 mod error;
 mod jira;
+mod reference_files;
 mod secrets;
 mod speech;
 mod state;
@@ -365,6 +366,17 @@ pub fn run() {
                     ai::openrouter_models::refresh_in_background(app.handle().clone());
                 }
             }
+
+            // Initialize OpenCode model catalog in the background if the CLI
+            // is detected. Picker reads from disk cache instantly and hot-swaps
+            // via `opencode:catalog:updated` when the background refresh lands.
+            if which::which("opencode").is_ok() {
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    ai::opencode_models::init_catalog(app_handle).await;
+                });
+            }
+
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -406,6 +418,8 @@ pub fn run() {
             ai::ai_open_login,
             ai::openrouter_models::openrouter_models_get,
             ai::openrouter_models::openrouter_models_refresh,
+            ai::opencode_models::opencode_models_get,
+            ai::opencode_models::opencode_models_refresh,
             // voice
             speech::speech_start,
             speech::speech_stop,
@@ -417,6 +431,11 @@ pub fn run() {
             attachments::attachment_purge_session,
             attachments::attachment_list,
             attachments::attachment_list_all,
+            // reference files (DEV mode only)
+            reference_files::reference_register_path,
+            reference_files::reference_remove,
+            reference_files::reference_purge_session,
+            reference_files::reference_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

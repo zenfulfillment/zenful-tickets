@@ -12,6 +12,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 // ─────────────────────────────────────────────────────────────
 // PATH augmentation
 //
@@ -48,7 +51,7 @@ fn apply_no_window(cmd: &mut Command) {
     let _ = cmd;
 }
 
-fn augmented_path() -> String {
+pub fn augmented_path() -> String {
     let home = std::env::var("HOME").ok().map(PathBuf::from);
     let mut extras: Vec<PathBuf> = Vec::new();
 
@@ -171,6 +174,7 @@ pub async fn probe_cli(cli: &str) -> CliStatus {
 pub enum Cli {
     Claude,
     Codex,
+    OpenCode,
 }
 
 impl Cli {
@@ -178,6 +182,7 @@ impl Cli {
         match self {
             Cli::Claude => "claude",
             Cli::Codex => "codex",
+            Cli::OpenCode => "opencode",
         }
     }
 
@@ -265,11 +270,33 @@ impl Cli {
                 v.push("-".into());
                 v
             }
+            // `opencode run --format json --dangerously-skip-permissions` runs
+            // non-interactively with JSONL streaming. System prompt goes to
+            // stdin (same as Codex). Model forwarded via `-m <id>`.
+            // Attachments use `-f <file>` flags (same pattern as Claude's --image).
+            Cli::OpenCode => {
+                let mut v: Vec<String> = vec![
+                    "run".into(),
+                    "--format".into(),
+                    "json".into(),
+                    "--dangerously-skip-permissions".into(),
+                ];
+                if let Some(m) = model.map(str::trim).filter(|s| !s.is_empty()) {
+                    v.push("-m".into());
+                    v.push(m.to_string());
+                }
+                for p in image_paths {
+                    v.push("-f".into());
+                    v.push(p.to_string_lossy().into_owned());
+                }
+                v.push("-".into());
+                v
+            }
         }
     }
 
     /// Whether the system prompt is passed via argv (Claude) or prepended to
-    /// the user message stdin stream (Codex).
+    /// the user message stdin stream (Codex, OpenCode).
     pub fn system_in_argv(&self) -> bool {
         matches!(self, Cli::Claude)
     }
@@ -297,6 +324,7 @@ impl Cli {
         match self {
             Cli::Claude => parse_claude_stream_line(raw_line),
             Cli::Codex => parse_codex_stream_line(raw_line),
+            Cli::OpenCode => parse_opencode_stream_line(raw_line),
         }
     }
 }
@@ -390,6 +418,41 @@ fn parse_claude_stream_line(raw_line: &str) -> Vec<String> {
         return Vec::new();
     }
     let Some(text) = delta.get("text").and_then(|v| v.as_str()) else {
+        return Vec::new();
+    };
+    if text.is_empty() {
+        Vec::new()
+    } else {
+        vec![text.to_string()]
+    }
+}
+
+/// Parse a single JSONL line from `opencode run --format json` and return the
+/// text delta(s) it carries, if any.
+///
+/// OpenCode's JSON mode emits event types including:
+///   - `step_start` / `step_finish` — control plane, drop.
+///   - `text` with `part.text` — streaming text tokens from the assistant.
+///   - Other event types (tool calls, reasoning, etc.) — drop.
+///
+/// Non-JSON lines fall back to raw passthrough so the user can see CLI output
+/// that didn't make it through the protocol.
+fn parse_opencode_stream_line(raw_line: &str) -> Vec<String> {
+    let trimmed = raw_line.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    let val: serde_json::Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(_) => return vec![raw_line.to_string()],
+    };
+
+    let event_type = val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if event_type != "text" {
+        return Vec::new();
+    }
+    let Some(text) = val.pointer("/part/text").and_then(|v| v.as_str()) else {
         return Vec::new();
     };
     if text.is_empty() {
@@ -528,6 +591,7 @@ fn friendly_error(binary: &str, stderr: &str) -> String {
         let cmd = match binary {
             "claude" => "claude /login",
             "codex" => "codex login",
+            "opencode" => "opencode providers login",
             other => other,
         };
         return format!(
@@ -570,6 +634,7 @@ pub fn open_login_terminal(provider: &str) -> AppResult<()> {
     let login_cmd = match provider {
         "claude" => "claude /login",
         "codex" => "codex login",
+        "opencode" => "opencode providers login",
         other => return Err(AppError::Invalid(format!("unknown provider: {other}"))),
     };
 
@@ -830,6 +895,34 @@ mod tests {
         let line = "OpenAI Codex v0.116.0";
         assert_eq!(Cli::Codex.parse_stream_chunk(line), vec![line.to_string()]);
         assert!(Cli::Codex.parse_stream_chunk("").is_empty());
+    }
+
+    #[test]
+    fn opencode_extracts_text_from_text_event() {
+        let line = r#"{"type":"text","part":{"type":"text","text":"Hello"}}"#;
+        assert_eq!(
+            Cli::OpenCode.parse_stream_chunk(line),
+            vec!["Hello".to_string()]
+        );
+    }
+
+    #[test]
+    fn opencode_drops_control_events() {
+        let cases = [
+            r#"{"type":"step_start","step":{"id":"s_1"}}"#,
+            r#"{"type":"step_finish","step":{"id":"s_1"}}"#,
+            r#"{"type":"tool_call","tool":{"name":"shell"}}"#,
+        ];
+        for c in cases {
+            assert!(Cli::OpenCode.parse_stream_chunk(c).is_empty(), "expected drop for: {c}");
+        }
+    }
+
+    #[test]
+    fn opencode_falls_back_to_raw_for_non_json() {
+        let line = "opencode v1.14.29";
+        assert_eq!(Cli::OpenCode.parse_stream_chunk(line), vec![line.to_string()]);
+        assert!(Cli::OpenCode.parse_stream_chunk("").is_empty());
     }
 
     #[test]
