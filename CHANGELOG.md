@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] — 2026-04-30
+
+### Added
+- **Main screen reference picker**: add reference folders on the Main screen before sending to the AI (DEV mode), not just on the Draft screen
+- **Motion-powered tooltips**: custom global tooltip with spring animation (fade + scale), single shared overlay, max-width constraint, and structured two-line layout with mono font
+- **Shadcn theme tokens**: full Tailwind CSS v4 theme token integration (background, foreground, card, popover, primary, muted, destructive, ring) mapped to the existing design system palette
+
+### Fixed
+- **macOS CI**: switch to universal binary (`--target universal-apple-darwin`) instead of separate arm64/x64 cross-compilation — fixes "This app is broken" error on M-series Macs
+
 ## [0.1.12] — 2026-04-30
 
 ### Added
