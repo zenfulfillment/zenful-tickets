@@ -102,7 +102,7 @@ It speaks to your existing AI tooling: the **Claude Code** and **Codex** CLIs yo
 
 ### Download a release
 
-Pre-built signed binaries for macOS (universal), Linux (x64 AppImage), and Windows (x64 MSI/EXE) are published to the [Releases page](https://github.com/zenfulfillment/zenful-tickets/releases). The app self-updates from there.
+Pre-built binaries for macOS (universal), Linux (x64 AppImage), and Windows (x64 MSI/EXE) are published to the [Releases page](https://github.com/zenfulfillment/zenful-tickets/releases). The app self-updates from there.
 
 ### Homebrew (macOS, planned)
 
@@ -330,7 +330,7 @@ Output bundles land in `src-tauri/target/release/bundle/`.
 
 ## Releasing
 
-CI publishes signed releases for macOS (universal), Linux (x64), and Windows (x64) via [`tauri-action`](https://github.com/tauri-apps/tauri-action).
+CI publishes releases for macOS (universal), Linux (x64), and Windows (x64) via [`tauri-action`](https://github.com/tauri-apps/tauri-action).
 
 The recommended path is the bundled `scripts/release.sh` helper, which atomically bumps every version manifest, commits on `main`, fast-forwards the `release` branch, tags, and pushes:
 

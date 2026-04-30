@@ -1,7 +1,7 @@
 name: release
 
-# Builds zenfultickets for macOS (arm64 + x64), Windows (x64), and Linux (x64)
-# using the official `tauri-apps/tauri-action`, signs each artifact, and publishes
+# Builds zenfultickets for macOS (universal), Windows (x64), and Linux (x64)
+# using the official `tauri-apps/tauri-action`, and publishes
 # a GitHub Release with bundles + `latest.json` for the auto-updater.
 #
 # Pattern follows: https://v2.tauri.app/distribute/pipelines/github/
