@@ -5,6 +5,12 @@ import { Background } from "../components/Background";
 import { Icon } from "../components/Icon";
 import { AttachmentMenu } from "../components/AttachmentMenu";
 import { AttachmentChips } from "../components/AttachmentChips";
+import {
+  TooltipProvider,
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "../components/ui/global-tooltip";
 import { useDraftAttachments } from "../lib/use-draft-attachments";
 import {
   ArrowRightIcon,
@@ -707,33 +713,58 @@ export function Main() {
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 8px", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                <AttachmentMenu
-                  onFiles={(files) => void addFiles(files)}
-                  count={attachments.length}
-                  maxCount={8}
-                />
-                {mode === "DEV" && (
-                  <button
-                    type="button"
-                    onClick={() => void handleAddReference()}
-                    title="Add reference folder"
-                    style={{
-                      display: "inline-flex", alignItems: "center", gap: 4,
-                      height: 28, padding: "0 8px",
-                      background: "transparent",
-                      border: "0.5px solid var(--border)",
-                      borderRadius: 6,
-                      font: "500 11px var(--font-text)",
-                      color: "var(--fg-muted)",
-                      cursor: "pointer",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--fg-muted)"; }}
-                  >
-                    <Icon.Folder size={12} />
-                    Ref
-                  </button>
-                )}
+                <TooltipProvider>
+                  <AttachmentMenu
+                    onFiles={(files) => void addFiles(files)}
+                    count={attachments.length}
+                    maxCount={8}
+                  />
+                  {mode === "DEV" && (
+                    <Tooltip side="bottom">
+                      <TooltipTrigger>
+                        <button
+                          type="button"
+                          onClick={() => void handleAddReference()}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 28,
+                            height: 28,
+                            padding: 0,
+                            background: references.length > 0 ? "var(--accent-soft)" : "transparent",
+                            color: references.length > 0 ? "var(--accent)" : "var(--fg-muted)",
+                            border: "0.5px solid transparent",
+                            borderRadius: 8,
+                            cursor: "pointer",
+                            transition: "background 140ms ease, color 140ms ease",
+                          }}
+                          onMouseEnter={(e) => {
+                            if (references.length === 0) {
+                              e.currentTarget.style.background = "var(--bg-active)";
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (references.length === 0) {
+                              e.currentTarget.style.background = "transparent";
+                            }
+                          }}
+                        >
+                          <Icon.Folder size={14} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <div>
+                          <div style={{ font: "600 12px var(--font-mono)", marginBottom: 2 }}>Reference Folders</div>
+                          <div style={{ font: "400 11px var(--font-mono)", color: "var(--background)", opacity: 0.65, lineHeight: 1.5 }}>
+                            Local source code the AI reads for context.<br />
+                            Never uploaded to Jira.
+                          </div>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+                </TooltipProvider>
                 <div className="segmented segmented-sm">
                   <button type="button" className={mode === "PO" ? "active" : ""} onClick={() => { if (mode !== "PO") playUi("toggle"); setMode("PO"); }}>PO</button>
                   <button type="button" className={mode === "DEV" ? "active" : ""} onClick={() => { if (mode !== "DEV") playUi("toggle"); setMode("DEV"); }}>DEV</button>
