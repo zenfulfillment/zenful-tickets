@@ -4,6 +4,7 @@ import {
   DEFAULT_SETTINGS,
   type AppSettings,
   type AttachmentRef,
+  type ReferenceEntry,
   type SecretsStatus,
 } from "./types";
 import { applyReduceMotion, applyTheme } from "./lib/theme";
@@ -33,6 +34,12 @@ export interface DraftContext {
    */
   attachments?: AttachmentRef[];
   attachmentSessionId?: string;
+  /**
+   * Reference files/folders for DEV mode analysis context. Carried through
+   * from Main → Draft so the user can add context before sending.
+   */
+  references?: ReferenceEntry[];
+  referenceSessionId?: string;
 }
 
 export interface AppStoreState {

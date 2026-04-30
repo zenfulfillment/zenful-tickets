@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Background } from "../components/Background";
 import { Icon } from "../components/Icon";
 import { AttachmentMenu } from "../components/AttachmentMenu";
@@ -13,14 +14,14 @@ import {
 import { Persona } from "../components/Persona";
 import { ProviderIcon } from "../components/ProviderIcon";
 import { VoiceWave } from "../components/primitives";
-import { aiDetectClis, listenSpeech } from "../lib/tauri";
+import { aiDetectClis, listenSpeech, referenceRegisterPath, referenceRemove } from "../lib/tauri";
 import { notify } from "../lib/notify";
 import { playUi } from "../lib/ui-sounds";
 import { isProviderUsable } from "../lib/providers";
 import { startVoice, type VoiceSession } from "../lib/voice";
 import { useAppStore } from "../store";
 import { Button } from "../components/ui/button";
-import type { DetectResult } from "../types";
+import type { DetectResult, ReferenceEntry } from "../types";
 import {
   defaultModelFor,
   MODELS,
@@ -94,6 +95,38 @@ export function Main() {
     remove: removeAttachment,
   } = useDraftAttachments();
   const [dragOver, setDragOver] = useState(false);
+
+  // Reference files/folders for DEV mode. Same session id as attachments
+  // so cleanup is unified. Carried through to Draft via openDraft.
+  const [references, setReferences] = useState<ReferenceEntry[]>([]);
+  const referenceSessionId = attachmentsSessionId;
+
+  const handleAddReference = async () => {
+    const picked = await open({
+      multiple: true,
+      directory: true,
+    });
+    if (!picked) return;
+    const list = Array.isArray(picked) ? picked : [picked];
+    for (const p of list) {
+      const path = String(p);
+      try {
+        const entry = await referenceRegisterPath(referenceSessionId ?? "refs", path);
+        setReferences((cur) => [...cur, entry]);
+      } catch (e) {
+        console.warn("failed to register reference:", e);
+      }
+    }
+  };
+
+  const handleRemoveReference = async (id: string) => {
+    try {
+      await referenceRemove(referenceSessionId ?? "refs", id);
+    } catch {
+      // best-effort
+    }
+    setReferences((cur) => cur.filter((r) => r.id !== id));
+  };
 
   // CLI detection — needed alongside `secrets` to know whether each provider
   // is actually usable (enabled + configured). Refreshed on mount; Settings
@@ -354,6 +387,8 @@ export function Main() {
       model: modelId,
       attachments: attachments.length > 0 ? attachments : undefined,
       attachmentSessionId: attachments.length > 0 ? attachmentsSessionId : undefined,
+      references: references.length > 0 ? references : undefined,
+      referenceSessionId: references.length > 0 ? referenceSessionId : undefined,
     });
     setText("");
   };
@@ -598,7 +633,49 @@ export function Main() {
                 one attachment, so the composer height stays unchanged for
                 the common no-attachment case. */}
             <AttachmentChips attachments={attachments} onRemove={(id) => void removeAttachment(id)} />
-            <div style={{ padding: attachments.length > 0 ? "8px 18px 6px" : "20px 18px 6px" }}>
+
+            {/* Reference files/folders — DEV mode only. Local source code
+                paths whose content is read for AI analysis context. NEVER
+                uploaded to Jira. */}
+            {mode === "DEV" && references.length > 0 && (
+              <div style={{ padding: "4px 18px 2px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ font: "500 10px var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--fg-subtle)" }}>
+                    Refs
+                  </span>
+                  {references.map((r) => (
+                    <div
+                      key={r.id}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 4,
+                        padding: "2px 6px", borderRadius: 4,
+                        background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.08)",
+                        font: "400 11px var(--font-mono)", color: "var(--fg-muted)",
+                      }}
+                    >
+                      <Icon.Folder size={10} />
+                      <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.path}>
+                        {r.label}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveReference(r.id)}
+                        style={{
+                          width: 14, height: 14, border: 0, padding: 0,
+                          borderRadius: 2, background: "transparent",
+                          color: "var(--fg-subtle)", cursor: "pointer",
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ padding: attachments.length > 0 ? "8px 18px 6px" : references.length > 0 && mode === "DEV" ? "6px 18px 6px" : "20px 18px 6px" }}>
               <textarea
                 ref={taRef}
                 rows={1}
@@ -635,6 +712,28 @@ export function Main() {
                   count={attachments.length}
                   maxCount={8}
                 />
+                {mode === "DEV" && (
+                  <button
+                    type="button"
+                    onClick={() => void handleAddReference()}
+                    title="Add reference folder"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 4,
+                      height: 28, padding: "0 8px",
+                      background: "transparent",
+                      border: "0.5px solid var(--border)",
+                      borderRadius: 6,
+                      font: "500 11px var(--font-text)",
+                      color: "var(--fg-muted)",
+                      cursor: "pointer",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; e.currentTarget.style.color = "var(--accent)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--fg-muted)"; }}
+                  >
+                    <Icon.Folder size={12} />
+                    Ref
+                  </button>
+                )}
                 <div className="segmented segmented-sm">
                   <button type="button" className={mode === "PO" ? "active" : ""} onClick={() => { if (mode !== "PO") playUi("toggle"); setMode("PO"); }}>PO</button>
                   <button type="button" className={mode === "DEV" ? "active" : ""} onClick={() => { if (mode !== "DEV") playUi("toggle"); setMode("DEV"); }}>DEV</button>
