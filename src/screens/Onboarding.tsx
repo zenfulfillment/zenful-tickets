@@ -883,7 +883,7 @@ function AIStep({
   onNext: () => void;
 }) {
   const anyAvailable =
-    !!detected?.claude.available || !!detected?.codex.available || geminiKey.trim().length > 10;
+    !!detected?.claude.available || !!detected?.codex.available || !!detected?.opencode.available || geminiKey.trim().length > 10;
 
   return (
     <StepShell step={3} total={TOTAL_STEPS} onBack={onBack} onNext={onNext} nextDisabled={!anyAvailable}>
@@ -933,6 +933,19 @@ function AIStep({
             available={!!detected?.codex.available}
             color="#10a37f"
             iconChar="◓"
+          />
+          <ModelRow
+            name="OpenCode"
+            tag="Anomaly"
+            description={
+              detected?.opencode.available
+                ? `Detected at ${detected.opencode.path} · ${detected.opencode.version ?? "version unknown"}`
+                : "Install with: npm i -g opencode — then relaunch."
+            }
+            method="cli"
+            available={!!detected?.opencode.available}
+            color="#6366f1"
+            iconChar="⌘"
           />
           <ModelRow
             name="Gemini 2.5 Pro"
