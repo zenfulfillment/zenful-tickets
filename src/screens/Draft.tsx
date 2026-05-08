@@ -35,6 +35,7 @@ import {
   listenDraft,
   type SubtaskExpansion,
 } from "../lib/tauri";
+import { errorMessage } from "../lib/errors";
 import { playUi } from "../lib/ui-sounds";
 import { Button } from "../components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
@@ -61,6 +62,11 @@ import {
   type Provider,
   type ReferenceEntry,
 } from "../types";
+
+// Jira's REST API rejects oversized descriptions. The hard ADF storage
+// limit on Jira Cloud sits around 32,767 chars; we cap below that with
+// safety margin so we still pass once ADF wraps the markdown in JSON.
+const JIRA_DESCRIPTION_MAX = 30_000;
 
 interface MetaState {
   projects: JiraProject[];
@@ -247,7 +253,7 @@ export function Draft() {
       });
     } catch (e) {
       if (!isCurrent()) return;
-      setStreamError(String(e));
+      setStreamError(errorMessage(e));
       setThinking(false);
     }
   };
@@ -439,7 +445,7 @@ export function Draft() {
       });
       setRefineText("");
     } catch (e) {
-      setStreamError(String(e));
+      setStreamError(errorMessage(e));
       setThinking(false);
       setRefining(false);
     }
@@ -518,6 +524,17 @@ export function Draft() {
       description_markdown = stripSubtasksSection(description_markdown);
     }
     description_markdown = description_markdown.trim();
+
+    // Jira rejects descriptions that exceed its ADF size budget (~32KB
+    // raw text). With reference files in the prompt, the model can run
+    // long — surface a friendly error here before the round-trip so the
+    // user sees something actionable instead of a 400 from Jira.
+    if (description_markdown.length > JIRA_DESCRIPTION_MAX) {
+      setCreateError(
+        `Draft description is ${description_markdown.length.toLocaleString()} characters, which exceeds Jira's ${JIRA_DESCRIPTION_MAX.toLocaleString()}-character limit. Refine the draft to be shorter (e.g. "tighten the description to under 6000 characters") or split it into sub-tasks.`,
+      );
+      return;
+    }
 
     // Pick a sub-taskable issue type from the project's metadata. Jira's
     // `/issue/createmeta/{project}/issuetypes` flags these via
@@ -684,7 +701,7 @@ export function Draft() {
             // the actual error so the user can see WHY it failed
             // (auth, network, parse, etc) rather than a generic
             // "Expansion failed" with no context.
-            const msg = String(e instanceof Error ? e.message : e).replace(/\s+/g, " ").trim();
+            const msg = errorMessage(e).replace(/\s+/g, " ").trim();
             const short = msg.length > 80 ? msg.slice(0, 77) + "…" : msg;
             updateStep("expand", {
               status: "done",
@@ -751,12 +768,13 @@ export function Draft() {
     } catch (e) {
       // The active step is the one that failed. Mark it as error so the
       // user sees which row blew up; keep the modal open with a Close button.
+      const msg = errorMessage(e);
       setPipelineSteps((prev) =>
         prev.map((s) =>
-          s.status === "active" ? { ...s, status: "error", detail: String(e) } : s,
+          s.status === "active" ? { ...s, status: "error", detail: msg } : s,
         ),
       );
-      setCreateError(String(e));
+      setCreateError(msg);
     } finally {
       setCreating(false);
     }
@@ -1620,33 +1638,91 @@ function StatusPill({
 }
 
 /**
- * A few shimmering placeholder lines that fill the body before any tokens
- * have streamed back. Each line uses the Shimmer text component so the
- * placeholder content itself feels alive instead of static.
+ * A single shimmering placeholder line that cycles through a script of
+ * "what the model is doing right now" messages. Each message types in
+ * character-by-character, holds with the shimmer sweep for ~1.5s, then
+ * backspaces out before the next one starts. Keeps the body alive while
+ * the model thinks without spamming four parallel ghosts.
  */
+const DRAFT_SKELETON_LINES: { text: string; spread: number }[] = [
+  { text: "Reading the input and identifying the strategic opportunity.", spread: 2.6 },
+  { text: "Composing user story, context, and acceptance criteria.", spread: 3.0 },
+  { text: "Breaking the work into a platform-oriented subtask plan.", spread: 2.4 },
+  { text: "Inferring labels, priority, and the right Jira issue type.", spread: 2.8 },
+];
+
+const TYPE_IN_MS = 24;
+const TYPE_OUT_MS = 12;
+const HOLD_MS = 1500;
+const GAP_MS = 220;
+
 function DraftSkeleton() {
-  const lines = [
-    { text: "Reading the input and identifying the strategic opportunity.", spread: 2.6 },
-    { text: "Composing user story, context, and acceptance criteria.", spread: 3.0 },
-    { text: "Breaking the work into a platform-oriented subtask plan.", spread: 2.4 },
-    { text: "Inferring labels, priority, and the right Jira issue type.", spread: 2.8 },
-  ];
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"in" | "hold" | "out" | "gap">("in");
+  const [shown, setShown] = useState(0);
+
+  const current = DRAFT_SKELETON_LINES[index];
+  const fullLen = current.text.length;
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (phase === "in") {
+      if (shown < fullLen) {
+        timer = setTimeout(() => setShown((n) => n + 1), TYPE_IN_MS);
+      } else {
+        setPhase("hold");
+      }
+    } else if (phase === "hold") {
+      timer = setTimeout(() => setPhase("out"), HOLD_MS);
+    } else if (phase === "out") {
+      if (shown > 0) {
+        timer = setTimeout(() => setShown((n) => n - 1), TYPE_OUT_MS);
+      } else {
+        setPhase("gap");
+      }
+    } else if (phase === "gap") {
+      timer = setTimeout(() => {
+        setIndex((i) => (i + 1) % DRAFT_SKELETON_LINES.length);
+        setPhase("in");
+      }, GAP_MS);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [phase, shown, fullLen]);
+
+  // Non-breaking space when the line is empty so the row holds its height
+  // and the layout doesn't jump as the cycle resets.
+  const visible = shown > 0 ? current.text.slice(0, shown) : " ";
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
-      {lines.map((l, i) => (
-        <div
-          key={i}
+    <div style={{ display: "flex", flexDirection: "column", marginTop: 4 }}>
+      <div
+        style={{
+          font: "400 14.5px var(--font-text)",
+          color: "var(--fg-subtle)",
+          lineHeight: 1.55,
+          minHeight: "calc(14.5px * 1.55)",
+        }}
+      >
+        <Shimmer as="span" duration={1.4} spread={current.spread}>
+          {visible}
+        </Shimmer>
+        <span
+          aria-hidden="true"
           style={{
-            font: "400 14.5px var(--font-text)",
-            color: "var(--fg-subtle)",
-            lineHeight: 1.55,
+            display: "inline-block",
+            width: 1,
+            height: "1em",
+            verticalAlign: "-0.15em",
+            marginLeft: 2,
+            background: "currentColor",
+            opacity: phase === "hold" ? 0 : 0.7,
+            animation: "draftCaretBlink 1s steps(2) infinite",
           }}
-        >
-          <Shimmer as="span" duration={1.6 + i * 0.1} spread={l.spread}>
-            {l.text}
-          </Shimmer>
-        </div>
-      ))}
+        />
+      </div>
+      <style>{`@keyframes draftCaretBlink { 50% { opacity: 0; } }`}</style>
     </div>
   );
 }
