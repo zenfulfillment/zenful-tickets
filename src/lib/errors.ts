@@ -59,6 +59,20 @@ export function parseAppError(raw: unknown): AppErrorPayload {
   return { kind: "other", message: String(raw ?? "Unknown error") };
 }
 
+/**
+ * Pull a human-readable string out of any `invoke()` rejection. Use this in
+ * catch blocks instead of `String(e)` — Tauri ships AppError as a tagged
+ * object, and `String({...})` returns "[object Object]". For Jira errors we
+ * prefix the HTTP status so the user sees something like "Jira 400: …".
+ */
+export function errorMessage(raw: unknown): string {
+  const parsed = parseAppError(raw);
+  if (parsed.kind === "jira" && parsed.status) {
+    return `Jira ${parsed.status}: ${parsed.message}`;
+  }
+  return parsed.message || "Unknown error";
+}
+
 function isKnownKind(v: unknown): v is AppErrorKind {
   return (
     v === "keyring" || v === "http" || v === "jira" ||

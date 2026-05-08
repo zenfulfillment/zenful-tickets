@@ -7,9 +7,7 @@ import { AttachmentMenu } from "../components/AttachmentMenu";
 import { AttachmentChips } from "../components/AttachmentChips";
 import {
   TooltipProvider,
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
+  useGlobalTooltip,
 } from "../components/ui/global-tooltip";
 import { useDraftAttachments } from "../lib/use-draft-attachments";
 import {
@@ -720,49 +718,10 @@ export function Main() {
                     maxCount={8}
                   />
                   {mode === "DEV" && (
-                    <Tooltip side="bottom">
-                      <TooltipTrigger>
-                        <button
-                          type="button"
-                          onClick={() => void handleAddReference()}
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            width: 28,
-                            height: 28,
-                            padding: 0,
-                            background: references.length > 0 ? "var(--accent-soft)" : "transparent",
-                            color: references.length > 0 ? "var(--accent)" : "var(--fg-muted)",
-                            border: "0.5px solid transparent",
-                            borderRadius: 8,
-                            cursor: "pointer",
-                            transition: "background 140ms ease, color 140ms ease",
-                          }}
-                          onMouseEnter={(e) => {
-                            if (references.length === 0) {
-                              e.currentTarget.style.background = "var(--bg-active)";
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (references.length === 0) {
-                              e.currentTarget.style.background = "transparent";
-                            }
-                          }}
-                        >
-                          <Icon.Folder size={14} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <div>
-                          <div style={{ font: "600 12px var(--font-mono)", marginBottom: 2 }}>Reference Folders</div>
-                          <div style={{ font: "400 11px var(--font-mono)", color: "var(--background)", opacity: 0.65, lineHeight: 1.5 }}>
-                            Local source code the AI reads for context.<br />
-                            Never uploaded to Jira.
-                          </div>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
+                    <ReferenceButton
+                      count={references.length}
+                      onClick={() => void handleAddReference()}
+                    />
                   )}
                 </TooltipProvider>
                 <div className="segmented segmented-sm">
@@ -875,6 +834,86 @@ export function Main() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Reference-folder picker button. Uses `useGlobalTooltip` directly rather
+ * than the wrapper-based `<Tooltip>` API so re-renders of Main don't
+ * cancel the hide timeout — the wrapper pattern's TooltipContent effect
+ * republishes its children on every parent render, which the trigger's
+ * sync effect then forwards as a fresh `showTooltip(...)`, clearing any
+ * pending hide timer and leaving the bubble stuck on screen.
+ */
+function ReferenceButton({ count, onClick }: { count: number; onClick: () => void }) {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const { showTooltip, hideTooltip } = useGlobalTooltip();
+
+  const handleEnter = useCallback(() => {
+    if (!wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    showTooltip({
+      content: (
+        <div>
+          <div style={{ font: "600 12px var(--font-mono)", marginBottom: 2 }}>Reference Folders</div>
+          <div style={{ font: "400 11px var(--font-mono)", color: "var(--background)", opacity: 0.65, lineHeight: 1.5 }}>
+            Local source code the AI reads for context.<br />
+            Never uploaded to Jira.
+          </div>
+        </div>
+      ),
+      rect,
+      side: "bottom",
+      sideOffset: 10,
+      align: "center",
+      alignOffset: 0,
+      id: "reference-button",
+      arrow: true,
+    });
+  }, [showTooltip]);
+
+  const handleLeave = useCallback(() => {
+    hideTooltip();
+  }, [hideTooltip]);
+
+  return (
+    <span
+      ref={wrapRef}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      style={{ display: "inline-flex" }}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 28,
+          height: 28,
+          padding: 0,
+          background: count > 0 ? "var(--accent-soft)" : "transparent",
+          color: count > 0 ? "var(--accent)" : "var(--fg-muted)",
+          border: "0.5px solid transparent",
+          borderRadius: 8,
+          cursor: "pointer",
+          transition: "background 140ms ease, color 140ms ease",
+        }}
+        onMouseEnter={(e) => {
+          if (count === 0) {
+            e.currentTarget.style.background = "var(--bg-active)";
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (count === 0) {
+            e.currentTarget.style.background = "transparent";
+          }
+        }}
+      >
+        <Icon.Folder size={14} />
+      </button>
+    </span>
   );
 }
 
