@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] — 2026-05-08
+
+### Fixed
+- **Ticket creation with reference folders**: drafting with reference files no longer produces descriptions that exceed Jira's 32 KB ADF limit; failed creates surfaced as `[object Object]`.
+- **Error display**: catch blocks now extract the real Jira/AI/HTTP message from the tagged Tauri error payload instead of stringifying the object to `[object Object]`.
+- **Drafting placeholder lines**: the four parallel shimmer ghosts have been replaced with a single line that types in, holds with a shimmer sweep for ~1.5 s, backspaces out, and cycles to the next message.
+- **Reference folder tooltip stayed open after the cursor left** — the wrapper-based `<Tooltip>` re-published its content on every parent render, which silently cancelled the hide timer. Switched the button to the same direct-hook pattern as the attachment menu.
+
+### Changed
+- AI system prompt: explicit ban on echoing reference-file contents into the ticket body, and a hard 8,000-character cap on the markdown body before the JSON tail. Frontend now refuses to submit drafts over 30,000 characters with an actionable error.
+
 ## [0.1.13] — 2026-04-30
 
 ### Added
