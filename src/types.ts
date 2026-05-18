@@ -164,6 +164,49 @@ export interface InterviewMessage {
   ts: number;
 }
 
+export interface AiInterviewRequest {
+  request_id: string;
+  provider: Provider;
+  mode: "PO" | "DEV";
+  messages: InterviewMessage[];
+  tone?: AppSettings["tone"];
+  custom_system_prompt?: string;
+  model?: string;
+  attachment_ids?: string[];
+  reference_ids?: string[];
+}
+
+export interface SavedSubtask {
+  jira_key: string;
+  title: string;
+  description_markdown?: string;
+}
+
+export interface SaveHistoryPayload {
+  jira_key: string;
+  jira_url?: string;
+  provider: Provider;
+  mode: "PO" | "DEV";
+  model?: string;
+  project_key: string;
+  issue_type: string;
+  priority?: string;
+  epic_key?: string;
+  assignee_account_id?: string;
+  labels: string[];
+  subtask_keys: string[];
+  title: string;
+  initial_prompt: string;
+  interview_transcript?: string;
+  description_markdown: string;
+  subtasks: SavedSubtask[];
+}
+
+export interface SaveHistoryResult {
+  path: string;
+  id: string;
+}
+
 export interface DraftDoneEvent {
   request_id: string;
   text: string;

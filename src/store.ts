@@ -40,6 +40,10 @@ export interface DraftContext {
    */
   references?: ReferenceEntry[];
   referenceSessionId?: string;
+  /** Carried Interview → Draft. Forwarded into `aiDraft` as
+   *  `interview_transcript`. The Draft screen treats it as an opaque
+   *  Markdown blob. */
+  interview_transcript?: string;
 }
 
 export interface AppStoreState {
