@@ -384,7 +384,8 @@ export function Main() {
     // the AI pipeline wouldn't be able to resolve the ids. Draft.tsx is
     // responsible for purging once the work is complete (issue created or
     // user cancels). The hook's unmount handler is the safety net.
-    openDraft({
+    const target = settings.interviewMode ? useAppStore.getState().openInterview : openDraft;
+    target({
       prompt: trimmed,
       provider,
       mode,
@@ -633,6 +634,16 @@ export function Main() {
               transition: "box-shadow 220ms ease, border-color 220ms ease",
             }}
           >
+            {/* Interview Mode pill — slim top row above textarea.
+                Settings.interviewMode is sticky across sessions; submit
+                routes to openInterview when checked. */}
+            <div style={{ padding: "8px 14px 0" }}>
+              <InterviewModePill
+                checked={settings.interviewMode}
+                onToggle={() => void setSettings({ interviewMode: !settings.interviewMode })}
+              />
+            </div>
+
             {/* Attachment chip row — only renders when there's at least
                 one attachment, so the composer height stays unchanged for
                 the common no-attachment case. */}
@@ -912,6 +923,90 @@ function ReferenceButton({ count, onClick }: { count: number; onClick: () => voi
         }}
       >
         <Icon.Folder size={14} />
+      </button>
+    </span>
+  );
+}
+
+/**
+ * Pill-style toggle above the textarea. Bound to `settings.interviewMode`.
+ * Uses `useGlobalTooltip` directly — same pattern as `ReferenceButton` —
+ * so re-renders of Main don't cancel the hide timeout.
+ */
+function InterviewModePill({
+  checked,
+  onToggle,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const { showTooltip, hideTooltip } = useGlobalTooltip();
+
+  const handleEnter = useCallback(() => {
+    if (!wrapRef.current) return;
+    const rect = wrapRef.current.getBoundingClientRect();
+    showTooltip({
+      content: (
+        <div>
+          <div style={{ font: "600 12px var(--font-mono)", marginBottom: 2 }}>Interview Mode</div>
+          <div style={{ font: "400 11px var(--font-mono)", color: "var(--background)", opacity: 0.65, lineHeight: 1.5 }}>
+            Agent asks you questions until a ticket is ready,<br />
+            instead of using just the initial prompt context
+          </div>
+        </div>
+      ),
+      rect,
+      side: "bottom",
+      sideOffset: 8,
+      align: "start",
+      alignOffset: 0,
+      id: "interview-mode-pill",
+      arrow: true,
+    });
+  }, [showTooltip]);
+
+  const handleLeave = useCallback(() => {
+    hideTooltip();
+  }, [hideTooltip]);
+
+  return (
+    <span
+      ref={wrapRef}
+      onMouseEnter={handleEnter}
+      onMouseLeave={handleLeave}
+      style={{ display: "inline-flex" }}
+    >
+      <button
+        type="button"
+        onClick={() => { playUi("toggle"); onToggle(); }}
+        aria-pressed={checked}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          height: 22,
+          padding: "0 10px",
+          background: checked ? "var(--accent-soft)" : "transparent",
+          color: checked ? "var(--accent)" : "var(--fg-muted)",
+          border: `0.5px solid ${checked ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "var(--border-strong)"}`,
+          borderRadius: 999,
+          font: "500 11.5px var(--font-text)",
+          cursor: "pointer",
+          transition: "background 140ms ease, color 140ms ease, border-color 140ms ease",
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: 3,
+            border: `1px solid ${checked ? "currentColor" : "var(--fg-subtle)"}`,
+            background: checked ? "currentColor" : "transparent",
+          }}
+        />
+        Interview Mode
       </button>
     </span>
   );
