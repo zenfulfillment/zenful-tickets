@@ -443,6 +443,14 @@ export function Draft() {
     };
 
     try {
+      // Refinement operates on the already-generated draft body (`refine_of`),
+      // not on the raw interview transcript. Forwarding `interview_transcript`
+      // here would be a no-op anyway — the backend's `build_user_prompt` early-
+      // returns on the refine branch before the transcript branch (see
+      // src-tauri/src/ai/prompt.rs::build_user_prompt). Refinement therefore
+      // loses awareness of the original interview decisions; that's intentional
+      // and reflects the spec's authoritative-context model: the transcript
+      // authored the first draft, refinements adjust that draft directly.
       await aiDraft({
         request_id: requestId,
         provider: ctx.provider,

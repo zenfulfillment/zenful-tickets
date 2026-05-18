@@ -10,6 +10,7 @@ import {
   aiInterview,
   listenInterview,
   listenSpeech,
+  referencePurgeSession,
 } from "../lib/tauri";
 import { startVoice, type VoiceSession } from "../lib/voice";
 import { notify } from "../lib/notify";
@@ -155,6 +156,18 @@ export function Interview() {
     return () => unlisten?.();
   }, []);
 
+  // Reference session cleanup. We deliberately drop references when
+  // promoting to Draft (the transcript already contains analyzed
+  // context), so this is the last place that knows the session id.
+  // Purge on unmount in BOTH paths (Back to Main and Generate→Draft).
+  useEffect(() => {
+    const sid = ctx?.referenceSessionId;
+    if (!sid) return;
+    return () => {
+      void referencePurgeSession(sid).catch(() => {});
+    };
+  }, [ctx?.referenceSessionId]);
+
   const toggleVoice = async () => {
     if (voiceActive) {
       await voiceRef.current?.stop();
@@ -187,7 +200,8 @@ export function Interview() {
   };
 
   const handleGenerate = () => {
-    if (!ctx || generating || messages.length === 0) return;
+    if (!ctx || generating) return;
+    if (!messages.some((m) => m.role === "assistant")) return;
     setGenerating(true);
     // No disk write here — the transcript travels in-memory through Draft
     // and lands on disk after Jira publishes via ticket_save_history.

@@ -43,7 +43,7 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     listenSummon(() => {
       const st = useAppStore.getState();
-      if (st.screen === "draft" || st.screen === "settings") return;
+      if (st.screen === "draft" || st.screen === "settings" || st.screen === "interview") return;
       st.setScreen("main");
     }).then((fn) => {
       unlisten = fn;
