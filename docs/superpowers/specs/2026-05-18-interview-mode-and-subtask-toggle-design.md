@@ -175,8 +175,8 @@ Lifecycle:
 4. `handleGenerate()`:
    - Strip `[[READY]]` from any assistant text.
    - Serialize transcript to Markdown string.
-   - `interview_save_transcript(payload)` → returns path.
-   - `promoteInterviewToDraft(messages, path)`.
+   - `promoteInterviewToDraft(transcriptMarkdown)` → Draft mounts with `ctx.interview_transcript` set.
+   - No disk write here; the transcript is persisted on Jira publish inside `Draft.tsx::handleCreate` (see §8).
 5. Voice: same `startVoice` / `listenSpeech` wiring as Main, scoped to reply textarea.
 
 ### §5 Backend: `ai_interview` command (`src-tauri/src/ai/mod.rs`)
@@ -546,7 +546,7 @@ No automated tests are wired into this repo (only `pnpm build` typecheck). Manua
 
 | File | Change |
 |---|---|
-| `src/types.ts` | Add `interviewMode`, `splitIntoSubtasks` to `AppSettings` + `DEFAULT_SETTINGS`. Add `InterviewMessage`, `AiInterviewRequest`, `SaveTranscriptPayload`. Extend `DraftContext` with optional `interview_transcript`. |
+| `src/types.ts` | Add `interviewMode`, `splitIntoSubtasks` to `AppSettings` + `DEFAULT_SETTINGS`. Add `InterviewMessage`, `AiInterviewRequest`, `SavedSubtask`, `SaveHistoryPayload`, `SaveHistoryResult`. Extend `DraftContext` and `DraftArgs` with optional `interview_transcript`. |
 | `src/store.ts` | Add `"interview"` to `Screen`. Add `interviewCtx`, `openInterview`, `closeInterview`, `promoteInterviewToDraft`. |
 | `src/App.tsx` | Render `<Interview/>` when `screen === "interview"`. |
 | `src/screens/Main.tsx` | Add Interview Mode pill above textarea. Branch submit between `openInterview` / `openDraft`. |

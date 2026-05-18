@@ -18,9 +18,9 @@
 
 | File | Responsibility | Mode |
 |---|---|---|
-| `src/types.ts` | Settings schema (`interviewMode`, `splitIntoSubtasks`), `InterviewMessage`, `AiInterviewRequest`, `SaveTranscriptPayload`, `DraftContext.interview_transcript`, `DraftArgs.interview_transcript`. | modify |
+| `src/types.ts` | Settings schema (`interviewMode`, `splitIntoSubtasks`), `InterviewMessage`, `AiInterviewRequest`, `SavedSubtask`, `SaveHistoryPayload`, `SaveHistoryResult`, `DraftContext.interview_transcript`, `DraftArgs.interview_transcript`. | modify |
 | `src/store.ts` | `Screen` adds `"interview"`. New `interviewCtx`, `openInterview`, `closeInterview`, `promoteInterviewToDraft`. | modify |
-| `src/lib/tauri.ts` | `aiInterview`, `listenInterview`, `interviewSaveTranscript` wrappers + types. | modify |
+| `src/lib/tauri.ts` | `aiInterview`, `listenInterview`, `ticketSaveHistory` wrappers + types. | modify |
 | `src/App.tsx` | Render `<Interview/>` when `screen === "interview"`. | modify |
 | `src/screens/Main.tsx` | Interview Mode pill above textarea; route submit between `openInterview` / `openDraft`. | modify |
 | `src/screens/Interview.tsx` | NEW. Chat thread, reply composer, Generate button, ready sentinel handling. | create |
@@ -823,8 +823,6 @@ git commit -m "feat(ai): add ai_interview command + per-ticket history persisten
 Add to `src/types.ts` (next to `InterviewMessage` from Task 2):
 
 ```ts
-import type { Provider as _ProviderForRefs } from "./types"; // (no-op — Provider is already declared in this file)
-
 export interface AiInterviewRequest {
   request_id: string;
   provider: Provider;
@@ -837,21 +835,37 @@ export interface AiInterviewRequest {
   reference_ids?: string[];
 }
 
-export interface SaveTranscriptPayload {
+export interface SavedSubtask {
+  jira_key: string;
+  title: string;
+  description_markdown?: string;
+}
+
+export interface SaveHistoryPayload {
+  jira_key: string;
+  jira_url?: string;
   provider: Provider;
   mode: "PO" | "DEV";
   model?: string;
-  original_prompt: string;
-  messages: InterviewMessage[];
+  project_key: string;
+  issue_type: string;
+  priority?: string;
+  epic_key?: string;
+  assignee_account_id?: string;
+  labels: string[];
+  subtask_keys: string[];
+  title: string;
+  initial_prompt: string;
+  interview_transcript?: string;
+  description_markdown: string;
+  subtasks: SavedSubtask[];
 }
 
-export interface SaveTranscriptResult {
+export interface SaveHistoryResult {
   path: string;
   id: string;
 }
 ```
-
-(Delete the stray `import type { Provider as _ProviderForRefs }` line if your editor adds it — `Provider` is already in this file. The block above keeps everything in `src/types.ts` itself.)
 
 - [ ] **Step 2: Extend `DraftArgs` in `src/lib/tauri.ts` and the frontend `DraftContext` shape**
 
