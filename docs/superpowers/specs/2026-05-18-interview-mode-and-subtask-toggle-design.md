@@ -1,6 +1,6 @@
 # Interview Mode + Subtask Toggle — Design
 
-**Status:** Approved (brainstorming)
+**Status:** Shipped
 **Date:** 2026-05-18
 **Author:** Kevin Koester
 **Out-of-scope follow-up specs:** Ticket History UI (reads from the per-ticket Markdown records written here on Jira publish).
