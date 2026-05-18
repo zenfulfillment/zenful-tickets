@@ -349,7 +349,7 @@ Privacy: stored unencrypted alongside other local app data (same posture as exis
 ```
 Bound to `settings.splitIntoSubtasks`.
 
-**Draft.tsx** — at top of right meta sidebar, **above** the existing `MetaRow` blocks, before "Details" heading is reused as section label:
+**Draft.tsx** — at top of right meta sidebar, directly under the existing "Details" heading and above the first `MetaRow` block:
 
 ```tsx
 const [splitIntoSubtasksLocal, setSplitIntoSubtasksLocal] = useState(
@@ -418,7 +418,7 @@ export async function interviewSaveTranscript(payload: SaveTranscriptPayload): P
 }
 ```
 
-Types added to `src/types.ts`:
+Types added to `src/types.ts` (in addition to existing `AiDraftRequest` which gains the new optional `interview_transcript?: string` field):
 ```ts
 export interface AiInterviewRequest {
   request_id: string;
