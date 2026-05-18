@@ -14,7 +14,7 @@ import { secretsStatus as fetchSecretsStatus } from "./lib/tauri";
 const tauriStore = new LazyStore("settings.json", { autoSave: true, defaults: {} });
 const SETTINGS_KEY = "settings";
 
-export type Screen = "loading" | "onboarding" | "main" | "draft" | "settings";
+export type Screen = "loading" | "onboarding" | "main" | "interview" | "draft" | "settings";
 
 export interface DraftContext {
   prompt: string;
@@ -51,6 +51,7 @@ export interface AppStoreState {
   settings: AppSettings;
   secrets: SecretsStatus | null;
   draftCtx: DraftContext | null;
+  interviewCtx: DraftContext | null;
 
   // internal
   _hydrated: boolean;
@@ -62,6 +63,9 @@ export interface AppStoreState {
   refreshSecrets: () => Promise<void>;
   openDraft: (ctx: DraftContext) => void;
   closeDraft: () => void;
+  openInterview: (ctx: DraftContext) => void;
+  closeInterview: () => void;
+  promoteInterviewToDraft: (interviewTranscriptMarkdown: string) => void;
 }
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
@@ -69,6 +73,7 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   secrets: null,
   draftCtx: null,
+  interviewCtx: null,
   _hydrated: false,
 
   async hydrate() {
@@ -120,5 +125,31 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
   closeDraft() {
     set({ draftCtx: null, screen: "main" });
+  },
+
+  openInterview(ctx) {
+    set({ interviewCtx: ctx, screen: "interview" });
+  },
+
+  closeInterview() {
+    set({ interviewCtx: null, screen: "main" });
+  },
+
+  promoteInterviewToDraft(interviewTranscriptMarkdown) {
+    const ctx = get().interviewCtx;
+    if (!ctx) {
+      set({ screen: "main" });
+      return;
+    }
+    // Per the spec: references are not carried into the final draft —
+    // the transcript already contains the analyzed context. Attachments
+    // ARE carried; subject to existing routing.
+    const draftCtx: DraftContext = {
+      ...ctx,
+      references: undefined,
+      referenceSessionId: undefined,
+      interview_transcript: interviewTranscriptMarkdown,
+    };
+    set({ draftCtx, interviewCtx: null, screen: "draft" });
   },
 }));
