@@ -152,6 +152,18 @@ export interface ParsedTicket {
   tech_notes?: string;
 }
 
+/**
+ * One message in the Interview screen's chat thread. The role string
+ * matches the chat-completions convention so it can be mapped 1:1 onto
+ * provider-native chat arrays if we ever move off stateless replay.
+ */
+export interface InterviewMessage {
+  role: "user" | "assistant";
+  content: string;
+  /** Unix milliseconds. Used for transcript ordering + frontmatter timestamp. */
+  ts: number;
+}
+
 export interface DraftDoneEvent {
   request_id: string;
   text: string;
