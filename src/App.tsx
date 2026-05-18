@@ -9,6 +9,7 @@ import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Onboarding } from "./screens/Onboarding";
 import { Main } from "./screens/Main";
+import { Interview } from "./screens/Interview";
 import { Draft } from "./screens/Draft";
 import { Settings } from "./screens/Settings";
 
@@ -92,6 +93,7 @@ export default function App() {
         {screen === "loading" && <LoadingStub />}
         {screen === "onboarding" && <Onboarding />}
         {screen === "main" && <Main />}
+        {screen === "interview" && <Interview />}
         {screen === "draft" && <Draft />}
         {screen === "settings" && <Settings />}
         {/* Single Toaster — bottom-left default; the update toast overrides
