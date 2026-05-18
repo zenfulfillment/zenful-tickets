@@ -676,6 +676,12 @@ function DraftingSection() {
         <Row title="Submit on Enter" hint="When off, ⌘↩ submits and Enter inserts a newline.">
           <Switch checked={settings.submitOnEnter} onCheckedChange={(v) => void setSettings({ submitOnEnter: v })} />
         </Row>
+        <Row title="Split tickets into subtasks by default" hint="When off, the AI may still propose subtasks in the draft body, but they won't be created as Jira issues unless you flip the switch on the Draft sidebar for that draft.">
+          <Switch
+            checked={settings.splitIntoSubtasks}
+            onCheckedChange={(v) => void setSettings({ splitIntoSubtasks: v })}
+          />
+        </Row>
       </Group>
 
       <Group title="Voice">
