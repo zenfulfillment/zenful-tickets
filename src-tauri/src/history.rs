@@ -124,38 +124,38 @@ fn render_history_markdown(id: &str, req: &SaveHistoryRequest) -> String {
     );
 
     out.push_str("---\n");
-    out.push_str(&format!("id: {id}\n"));
-    out.push_str(&format!("created: {now}\n"));
-    out.push_str(&format!("jira_key: {}\n", req.jira_key));
+    out.push_str(&format!("id: {}\n", yaml_dq(id)));
+    out.push_str(&format!("created: {}\n", yaml_dq(&now)));
+    out.push_str(&format!("jira_key: {}\n", yaml_dq(&req.jira_key)));
     if let Some(url) = &req.jira_url {
-        out.push_str(&format!("jira_url: {url}\n"));
+        out.push_str(&format!("jira_url: {}\n", yaml_dq(url)));
     }
-    out.push_str(&format!("mode: {}\n", req.mode));
-    out.push_str(&format!("provider: {}\n", req.provider));
+    out.push_str(&format!("mode: {}\n", yaml_dq(&req.mode)));
+    out.push_str(&format!("provider: {}\n", yaml_dq(&req.provider)));
     if let Some(model) = &req.model {
-        out.push_str(&format!("model: {model}\n"));
+        out.push_str(&format!("model: {}\n", yaml_dq(model)));
     }
-    out.push_str(&format!("project_key: {}\n", req.project_key));
-    out.push_str(&format!("issue_type: {}\n", req.issue_type));
+    out.push_str(&format!("project_key: {}\n", yaml_dq(&req.project_key)));
+    out.push_str(&format!("issue_type: {}\n", yaml_dq(&req.issue_type)));
     if let Some(p) = &req.priority {
-        out.push_str(&format!("priority: {p}\n"));
+        out.push_str(&format!("priority: {}\n", yaml_dq(p)));
     }
     if let Some(e) = &req.epic_key {
-        out.push_str(&format!("epic_key: {e}\n"));
+        out.push_str(&format!("epic_key: {}\n", yaml_dq(e)));
     }
     if let Some(a) = &req.assignee_account_id {
-        out.push_str(&format!("assignee_account_id: {a}\n"));
+        out.push_str(&format!("assignee_account_id: {}\n", yaml_dq(a)));
     }
     if !req.labels.is_empty() {
         out.push_str("labels:\n");
         for l in &req.labels {
-            out.push_str(&format!("  - {l}\n"));
+            out.push_str(&format!("  - {}\n", yaml_dq(l)));
         }
     }
     if !req.subtask_keys.is_empty() {
         out.push_str("subtask_keys:\n");
         for k in &req.subtask_keys {
-            out.push_str(&format!("  - {k}\n"));
+            out.push_str(&format!("  - {}\n", yaml_dq(k)));
         }
     }
     out.push_str(&format!("had_interview: {had_interview}\n"));
@@ -205,4 +205,25 @@ fn indent_yaml_block(s: &str) -> String {
         .map(|l| format!("  {l}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Encode `s` as a YAML double-quoted scalar (suitable for any frontmatter
+/// value that doesn't already use the `|` literal block scalar). Escapes
+/// backslash, double-quote, newline, carriage return, and tab. Other
+/// printable characters pass through unchanged, which is safe inside `"..."`.
+fn yaml_dq(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
