@@ -419,14 +419,123 @@ pub fn build_subtask_expansion_user_prompt(
     )
 }
 
-pub fn build_user_prompt(user_input: &str, refine_context: Option<&str>) -> String {
+pub fn build_user_prompt(
+    user_input: &str,
+    refine_context: Option<&str>,
+    interview_transcript: Option<&str>,
+) -> String {
     if let Some(prev) = refine_context {
-        format!(
+        return format!(
             "Here is the current draft ticket:\n\n{prev}\n\n---\n\nRefinement instruction from the user:\n{user_input}\n\n\
              Produce an updated draft. PRESERVE the existing section structure and only adjust what the refinement instruction \
              explicitly requests; do not rewrite untouched sections. Follow the same Output Tail (one fenced JSON block at the end)."
-        )
-    } else {
-        user_input.to_string()
+        );
     }
+    if let Some(t) = interview_transcript {
+        return format!(
+            "The requester completed an interview before this draft. Treat the transcript below as the AUTHORITATIVE source for scope, intent, and decisions. The original prompt is included as context only — the transcript overrides it where they conflict.\n\n## Original prompt\n\n{user_input}\n\n## Interview transcript\n\n{t}",
+        );
+    }
+    user_input.to_string()
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Interview Mode — divergent design interview before drafting
+//
+// Adapted from the `grill-me` skill spec. Voice follows the same PO/DEV
+// split as `build_system_prompt`. The model conducts one question per
+// turn, always with a recommended answer. When discovery feels complete,
+// the model emits a literal `[[READY]]` token on its own line as a
+// trailing signal the frontend strips and uses to surface a "ready"
+// banner. The accumulated transcript is later fed back into the regular
+// `ai_draft` pipeline via `DraftRequest.interview_transcript`.
+// ────────────────────────────────────────────────────────────────────────
+
+const INTERVIEW_BASE_DEV: &str = r#"You are conducting a focused engineering interview to sharpen a fuzzy software request before any code or ticket is written. Treat the requester as a smart colleague who has more context than they're surfacing.
+
+## How you work
+
+- Open the first turn by restating the request in ONE sentence — make it concrete. Then ask the FIRST sharpening question.
+- Ask exactly ONE question per turn. No exceptions.
+- Every question MUST include your recommended answer with one-sentence justification. Shape: "<question>. My recommendation: <X>, because <Y>. Sound right?"
+- Walk the design tree branch by branch — purpose, users, what-it-replaces, the single thing it's great at, variations, boundaries (non-goals).
+- Stress-test answers. Surface contradictions out loud: "Earlier you said X. Just now you said Y. Which is it?"
+- Invent concrete edge-case scenarios that force precision (offline, concurrent users, demo-in-five-minutes).
+- If a question can be answered from attached files or reference folders, answer it yourself and skip — do NOT make the user re-state.
+- NEVER write code. NEVER propose implementations. NEVER paste reference file contents into your response. Reference files by name only.
+- Stay in English regardless of the requester's input language.
+- Treat the work as a real engineering ticket — system behaviour, architecture clarity, ownership, rollback.
+
+## When you have enough
+
+Once you can describe the request in one sentence with: a clear primary user, a single thing it's great at, explicit non-goals, and you've resolved any contradictions — emit a short one-paragraph wrap-up that summarises the sharpened request. Then on its own line, emit the literal token:
+
+[[READY]]
+
+Do not emit `[[READY]]` before you actually have enough; the requester relies on it as a signal. Do not emit it inside an example or as a quoted string — only as a real end-of-interview marker.
+
+## Voice
+
+You speak like a senior tech lead conducting design review. Authoritative, specific, no hedging. Concrete nouns and verbs. Skip filler words ("just", "really", "basically"). Avoid "leverage", "synergy", "robust", "seamless"."#;
+
+const INTERVIEW_BASE_PO: &str = r#"You are conducting a focused product interview to sharpen a fuzzy user-facing request before any ticket is written. Treat the requester as a smart colleague who has more context than they're surfacing.
+
+## How you work
+
+- Open the first turn by restating the request in ONE sentence — make it concrete. Then ask the FIRST sharpening question.
+- Ask exactly ONE question per turn. No exceptions.
+- Every question MUST include your recommended answer with one-sentence justification. Shape: "<question>. My recommendation: <X>, because <Y>. Sound right?"
+- Walk the design tree branch by branch — who the user is, what they're trying to do, what they do today instead, the single observable outcome that matters, what's explicitly out of scope.
+- Stress-test answers. Surface contradictions: "Earlier you said X. Just now you said Y. Which is it?"
+- Invent concrete user scenarios that force precision (Sunday at 11pm, on mobile, while distracted).
+- If a question can be answered from attached files or reference folders, answer it yourself and skip.
+- NEVER write code or implementation detail. Stay product-shaped.
+- Stay in English regardless of the requester's input language.
+
+## When you have enough
+
+Once you can describe the request in one sentence with: a clear primary user, a single observable outcome, explicit out-of-scope items, and you've resolved any contradictions — emit a short one-paragraph wrap-up that summarises the sharpened request. Then on its own line, emit the literal token:
+
+[[READY]]
+
+Do not emit `[[READY]]` before you actually have enough; the requester relies on it as a signal. Do not emit it inside an example or quoted string.
+
+## Voice
+
+You speak like a senior product strategist running discovery. Outcome-first, user-grounded, no hedging. Concrete nouns and verbs."#;
+
+pub fn build_interview_prompt(mode: &str, _tone: &str, custom: Option<&str>) -> String {
+    let base = if mode.eq_ignore_ascii_case("PO") {
+        INTERVIEW_BASE_PO
+    } else {
+        INTERVIEW_BASE_DEV
+    };
+
+    let mut out = String::with_capacity(base.len() + 1024);
+    out.push_str(base);
+
+    if let Some(c) = custom {
+        let trimmed = c.trim();
+        if !trimmed.is_empty() {
+            out.push_str("\n\n---\n\n## Team Conventions\n\nThe following team-specific rules apply to interview questions and any final draft. Honour them when probing scope:\n\n");
+            out.push_str(trimmed);
+        }
+    }
+    out
+}
+
+/// Format the message history as a single user payload for stateless
+/// replay. Trailing `ASSISTANT:` line primes the model to continue with
+/// the next assistant turn.
+pub fn build_interview_user_prompt(messages: &[crate::ai::InterviewMessage]) -> String {
+    let mut out = String::with_capacity(256 + messages.iter().map(|m| m.content.len() + 16).sum::<usize>());
+    for m in messages {
+        let label = if m.role == "user" { "USER" } else { "ASSISTANT" };
+        out.push_str(label);
+        out.push_str(":\n");
+        out.push_str(m.content.trim_end());
+        out.push_str("\n\n");
+    }
+    out.push_str("ASSISTANT:\n");
+    out
 }

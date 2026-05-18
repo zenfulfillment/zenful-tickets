@@ -1,6 +1,7 @@
 mod ai;
 mod attachments;
 mod error;
+pub mod history;
 mod jira;
 mod reference_files;
 mod secrets;
@@ -413,6 +414,7 @@ pub fn run() {
             // ai
             ai::ai_detect_clis,
             ai::ai_draft,
+            ai::ai_interview,
             ai::ai_expand_subtasks,
             ai::ai_cancel,
             ai::ai_open_login,
@@ -436,6 +438,8 @@ pub fn run() {
             reference_files::reference_remove,
             reference_files::reference_purge_session,
             reference_files::reference_list,
+            // history
+            history::ticket_save_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
