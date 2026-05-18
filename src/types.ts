@@ -184,6 +184,15 @@ export interface AppSettings {
   // drafting
   defaultMode: "PO" | "DEV";
   submitOnEnter: boolean;
+  /** When true, submit on Main routes through the Interview screen
+   *  before the Draft screen. The state is persisted purely for
+   *  stickiness across sessions — same pattern as `defaultMode`. */
+  interviewMode: boolean;
+  /** Global default for whether Draft's create pipeline runs the
+   *  sub-task expansion + creation steps. The Draft sidebar has a
+   *  session-only override that copies this value on mount and does
+   *  NOT write back. */
+  splitIntoSubtasks: boolean;
   tone: "concise" | "balanced" | "detailed";
   systemPrompt: string;
   // voice
@@ -214,6 +223,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   streaming: true,
   defaultMode: "PO",
   submitOnEnter: true,
+  interviewMode: false,
+  splitIntoSubtasks: true,
   tone: "balanced",
   systemPrompt: "",
   voiceEnabled: true,
