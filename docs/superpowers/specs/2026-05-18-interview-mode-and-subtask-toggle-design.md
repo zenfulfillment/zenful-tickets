@@ -3,13 +3,13 @@
 **Status:** Approved (brainstorming)
 **Date:** 2026-05-18
 **Author:** Kevin Koester
-**Out-of-scope follow-up specs:** Ticket History (storage + UI on top of transcripts persisted here).
+**Out-of-scope follow-up specs:** Ticket History UI (reads from the per-ticket Markdown records written here on Jira publish).
 
 ## Summary
 
 Two coordinated changes to the draft flow:
 
-1. **Interview Mode** — opt-in checkbox on the Main prompt UI. When enabled, the submit routes through a new chat-style Interview screen where the AI asks one focused question at a time (with a recommended answer) until shared understanding is reached. User clicks **Generate ticket** to promote the transcript into a normal draft on the existing Draft screen. Transcripts persist to the app-data directory for a future Ticket History feature.
+1. **Interview Mode** — opt-in checkbox on the Main prompt UI. When enabled, the submit routes through a new chat-style Interview screen where the AI asks one focused question at a time (with a recommended answer) until shared understanding is reached. User clicks **Generate ticket** to promote the transcript into a normal draft on the existing Draft screen. The transcript travels in-memory; persistence happens once the ticket is published to Jira (see §8).
 2. **Subtask toggle** — global default in Settings ("Split tickets into subtasks by default", ON by default) plus a session-only switch in the Draft sidebar. When disabled, the create pipeline skips both the sub-task expansion AI call and the Jira sub-task POSTs. Flipping the switch on the Draft sidebar does NOT write back to the global default.
 
 Naming note: the underlying skill is `grill-me`, but the UI says "Interview Mode" — the skill body is injected as a system prompt at runtime; we do not load or reference a skill file.
@@ -18,15 +18,15 @@ Naming note: the underlying skill is `grill-me`, but the UI says "Interview Mode
 
 - Improve ticket quality for fuzzy / under-specified prompts by gathering missing context before drafting.
 - Give the user explicit control over sub-task creation per draft, without forcing them to flip a global setting before each submission.
-- Lay groundwork for Ticket History (persisted transcripts) without building the History UI itself.
+- Lay groundwork for Ticket History (per-ticket Markdown records written on Jira publish) without building the History UI itself.
 
 ## Non-goals (v1)
 
-- No Ticket History UI / list / search / resume (separate spec).
+- No Ticket History UI / list / search (separate spec). No session-resume — History is read-only metadata browsing.
 - No native provider session IDs (Claude `--session-id`, Codex resume) — stateless replay across all providers for uniformity.
 - No mid-interview provider/model/mode switching.
 - No interview-mode toggle on the Settings page — it's a per-Main UI state, persisted across sessions only for stickiness, like `defaultMode`.
-- No persisting interview transcripts to anywhere besides app-data dir.
+- No persistence of in-progress interview transcripts before Jira publish (only published tickets get written to disk).
 - No sentinel-driven re-generation if user disagrees with the AI's "ready" signal.
 
 ## User-facing flow
@@ -274,69 +274,67 @@ pub fn build_user_prompt(
 
 Call site in `ai_draft` updated. Frontend `aiDraft` wrapper gains `interview_transcript?: string`; Draft.tsx forwards `ctx.interview_transcript`.
 
-### §8 Transcript persistence (`src-tauri/src/interview.rs` — NEW)
+### §8 Ticket history persistence (`src-tauri/src/history.rs` — NEW)
 
 ```rust
 #[derive(Debug, Deserialize)]
-pub struct SaveTranscriptRequest {
+pub struct SaveHistoryRequest {
+    pub jira_key: String,
+    pub jira_url: Option<String>,
     pub provider: String,
     pub mode: String,
     pub model: Option<String>,
-    pub original_prompt: String,
-    pub messages: Vec<crate::ai::InterviewMessage>,
+    pub project_key: String,
+    pub issue_type: String,
+    pub priority: Option<String>,
+    pub epic_key: Option<String>,
+    pub assignee_account_id: Option<String>,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub subtask_keys: Vec<String>,
+    pub title: String,
+    pub initial_prompt: String,
+    #[serde(default)]
+    pub interview_transcript: Option<String>,
+    pub description_markdown: String,
+    #[serde(default)]
+    pub subtasks: Vec<SavedSubtask>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SavedSubtask {
+    pub jira_key: String,
+    pub title: String,
+    #[serde(default)]
+    pub description_markdown: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct SaveTranscriptResult {
+pub struct SaveHistoryResult {
     pub path: String,
     pub id: String,
 }
 
 #[tauri::command]
-pub async fn interview_save_transcript(
+pub async fn ticket_save_history(
     app: AppHandle,
-    req: SaveTranscriptRequest,
-) -> AppResult<SaveTranscriptResult> {
-    // 1. Resolve ${appDataDir}/interviews/, create if missing.
+    req: SaveHistoryRequest,
+) -> AppResult<SaveHistoryResult> {
+    // 1. Resolve ${appDataDir}/tickets/, create if missing.
     // 2. Generate UUID v4.
-    // 3. Write `${dir}/<uuid>.md` with frontmatter + body (see schema below).
+    // 3. Write `${dir}/<uuid>.md` with frontmatter + body sections.
     // 4. Return { path, id }.
 }
 ```
 
-File schema:
-```markdown
----
-id: <uuid v4>
-created: 2026-05-18T11:23:44Z
-mode: PO
-provider: claude_cli
-model: claude-sonnet-4-6
-original_prompt: |
-  <verbatim prompt from Main>
----
-
-# Interview transcript
-
-## USER
-
-<message content>
-
-## ASSISTANT
-
-<message content>
-
-## USER
-
-…
-```
-
 Designed for forward-compatible migration:
-- Front-matter carries structured fields a SQLite migration can read without re-parsing Markdown body.
+- Front-matter carries every list-view field the future History UI needs without parsing body.
 - Pure-Markdown body keeps the file human-readable in Finder/Quick Look.
 - UUID-named file means filename collisions never happen on rapid submits.
+- `had_interview` flag in frontmatter lets the History UI badge tickets that came through Interview Mode.
 
-Privacy: stored unencrypted alongside other local app data (same posture as existing draft caches). Secrets stay in Keychain. Ticket History spec will add delete/prune UI; for now users can wipe by removing the folder.
+Privacy: stored unencrypted alongside other local app data (same posture as existing draft caches). Secrets stay in Keychain. Ticket History UI spec will add delete/prune.
 
 ### §9 Subtask toggle wiring (`src/screens/Draft.tsx`, `src/screens/Settings.tsx`)
 
@@ -397,7 +395,7 @@ The switch row state is `useState` only — flipping it never calls `setSettings
 .invoke_handler(tauri::generate_handler![
     // …existing…
     ai::ai_interview,
-    interview::interview_save_transcript,
+    history::ticket_save_history,
 ])
 ```
 
@@ -413,8 +411,8 @@ export async function listenInterview(
   handlers: { onChunk?: (t: string) => void; onDone?: (d: InterviewDoneEvent) => void; onError?: (msg: string) => void },
 ): Promise<() => void> { /* mirrors listenDraft */ }
 
-export async function interviewSaveTranscript(payload: SaveTranscriptPayload): Promise<{ path: string; id: string }> {
-  return invoke("interview_save_transcript", { req: payload });
+export async function ticketSaveHistory(payload: SaveHistoryPayload): Promise<{ path: string; id: string }> {
+  return invoke("ticket_save_history", { req: payload });
 }
 ```
 
@@ -432,12 +430,35 @@ export interface AiInterviewRequest {
   reference_ids?: string[];
 }
 
-export interface SaveTranscriptPayload {
+export interface SavedSubtask {
+  jira_key: string;
+  title: string;
+  description_markdown?: string;
+}
+
+export interface SaveHistoryPayload {
+  jira_key: string;
+  jira_url?: string;
   provider: Provider;
   mode: "PO" | "DEV";
   model?: string;
-  original_prompt: string;
-  messages: InterviewMessage[];
+  project_key: string;
+  issue_type: string;
+  priority?: string;
+  epic_key?: string;
+  assignee_account_id?: string;
+  labels: string[];
+  subtask_keys: string[];
+  title: string;
+  initial_prompt: string;
+  interview_transcript?: string;
+  description_markdown: string;
+  subtasks: SavedSubtask[];
+}
+
+export interface SaveHistoryResult {
+  path: string;
+  id: string;
 }
 ```
 
@@ -463,14 +484,11 @@ Interview screen:
   aiThinksReady = true; banner shows
        │
        ▼  user clicks "Generate ticket"
-  interview_save_transcript({…}) ── Rust ──▶ writes ${appDataDir}/interviews/<uuid>.md
-       │                                              returns { path, id }
-       ▼
-  promoteInterviewToDraft(messages, path)
+  promoteInterviewToDraft(transcriptMarkdown)
        │
        ▼
 Draft screen:
-  ai_draft({ prompt: ctx.prompt, interview_transcript: <formatted messages>, ... })
+  ai_draft({ prompt: ctx.prompt, interview_transcript, ... })
        │  (references dropped per design; attachments preserved)
        ▼
   streams ticket Markdown + JSON tail as usual
@@ -480,13 +498,21 @@ Draft screen:
        │
        ▼
   jira_create_issue + jira_upload_attachment* + (if splitIntoSubtasksLocal) ai_expand_subtasks + jira_create_subtask*
+       │
+       ▼  on success
+  ticket_save_history({ jira_key, jira_url, title, project_key, issue_type, …,
+                        initial_prompt, interview_transcript?, description_markdown,
+                        subtasks: [{ jira_key, title, description_markdown? }, …] })
+       │  ── Rust ──▶ writes ${appDataDir}/tickets/<uuid>.md
+       ▼  (fire-and-forget; warning toast on failure, no UI block)
+  "Created" overlay → user opens ticket or starts a new one
 ```
 
 ## Error handling
 
 - **Interview turn fails mid-stream**: render error in conversation thread as a "Retry last turn" affordance. Existing `streamError` pattern applies. User's prior reply isn't lost — it's already in `messages`.
 - **User clicks Generate before any AI turn completes**: button disabled until first assistant turn lands.
-- **Transcript save fails**: surface as toast; do NOT block draft generation. Pass `null` for `transcriptPath` to `promoteInterviewToDraft`. The transcript still goes to `ai_draft` in-memory.
+- **History save fails on Jira publish**: surface as a warning toast; do NOT block the success UI. The Jira ticket and sub-tasks were already created — losing the local history record is recoverable (user can re-publish by hand only if they care).
 - **Subtask switch off, but AI proposed subtasks**: subtasks present in `streamText` (visible to user in the rendered body until create-time), but `handleCreate` filters them out. No greyed-out pipeline row. Description still has the `### Subtasks` section stripped.
 - **Interview cancelled (Back button or window close)**: cleanupRef cancels in-flight `ai_interview` call via existing canceller plumbing; reference + attachment sessions purged on Interview unmount.
 
@@ -498,7 +524,8 @@ No automated tests are wired into this repo (only `pnpm build` typecheck). Manua
 2. **Pill toggle**: click pill on Main, reload app, pill still checked. Submit with pill checked → Interview screen mounts. Submit with pill unchecked → Draft screen mounts (existing behavior).
 3. **Interview turn loop**: send first prompt → AI emits restated summary + Q1 with recommendation. Reply → AI emits Q2. Verify exactly one question per turn (visual review of assistant messages).
 4. **Ready sentinel**: type contradictory / vague answers until model emits `[[READY]]`. Verify sentinel stripped from displayed text and "Generate ticket" banner appears. Verify Generate button styling changes.
-5. **Generate handoff**: click Generate → Draft mounts → ticket streams. Verify transcript ends up in `${appDataDir}/interviews/<uuid>.md` with correct front-matter. Verify references session purged.
+5. **Generate handoff**: click Generate → Draft mounts → ticket streams. Verify references session purged. (No disk write yet at this stage.)
+5a. **History on publish**: complete the Draft Create flow against a real Jira project. After the success overlay, inspect `${appDataDir}/tickets/<uuid>.md`. Verify frontmatter includes the Jira key, project, issue type, labels, sub-task keys (if any), and `had_interview: true`. Verify the body sections contain initial prompt, transcript, final description, and sub-task bodies.
 6. **Cancellation**: open Interview, send first turn, click Back mid-stream. Verify no leaked listener (no second draft emerging on next session — open Activity Monitor / log).
 7. **Voice**: click mic in reply composer; speak; verify transcript appears in textarea.
 8. **Subtask toggle, global ON**: submit normally → switch on sidebar reads ON → Create → pipeline shows expand + subtasks rows.
@@ -512,7 +539,8 @@ No automated tests are wired into this repo (only `pnpm build` typecheck). Manua
 - **Token cost on long interviews**: stateless replay resends full transcript each turn — cost grows ~O(n²) by total length. *Mitigation*: acceptable for v1 (interviews target a handful of turns). Future optimization: native session IDs for CLI providers.
 - **Reference files re-read every interview turn**: each `ai_interview` call resolves refs and builds payload. *Mitigation*: existing reference cache; cost is read-from-disk, not network. Acceptable.
 - **Transcript privacy**: plaintext on local disk. *Mitigation*: same posture as existing draft caches; secrets remain in Keychain. Ticket History spec will add explicit delete/prune UI.
-- **Schema drift between this spec and Ticket History**: front-matter fields chosen here lock the structure History will read. *Mitigation*: keep front-matter minimal and machine-readable; document the contract in this file so History spec inherits it.
+- **Schema drift between this spec and Ticket History UI**: front-matter fields chosen here lock the structure History will read. *Mitigation*: keep front-matter minimal and machine-readable; document the contract in this file so the UI spec inherits it. Adding new optional frontmatter keys later is forward-compatible; renaming or removing keys requires a migration pass.
+- **History persists on EVERY publish, including drafts not driven by Interview**: by design — the file is the full ticket record, not just an interview record. `had_interview: false` distinguishes them. *Mitigation*: none needed; this is the intent.
 
 ## Files touched
 
@@ -523,13 +551,13 @@ No automated tests are wired into this repo (only `pnpm build` typecheck). Manua
 | `src/App.tsx` | Render `<Interview/>` when `screen === "interview"`. |
 | `src/screens/Main.tsx` | Add Interview Mode pill above textarea. Branch submit between `openInterview` / `openDraft`. |
 | `src/screens/Interview.tsx` | NEW. Chat thread, reply composer, ready banner, Generate button, voice + attachments wiring. |
-| `src/screens/Draft.tsx` | `splitIntoSubtasksLocal` state initialized from `settings.splitIntoSubtasks`. New sidebar switch row above existing MetaRows. Pipeline gate in `handleCreate`. Forward `ctx.interview_transcript` to `aiDraft`. |
+| `src/screens/Draft.tsx` | `splitIntoSubtasksLocal` state initialized from `settings.splitIntoSubtasks`. New sidebar switch row above existing MetaRows. Pipeline gate in `handleCreate`. Forward `ctx.interview_transcript` to `aiDraft`. After successful Jira publish, fire-and-forget `ticketSaveHistory(...)` with full payload (initial prompt, transcript if any, final description, sub-task keys + bodies). |
 | `src/screens/Settings.tsx` | New row in Drafting section: "Split tickets into subtasks by default". |
-| `src/lib/tauri.ts` | `aiInterview`, `listenInterview`, `interviewSaveTranscript` wrappers. |
+| `src/lib/tauri.ts` | `aiInterview`, `listenInterview`, `ticketSaveHistory` wrappers. |
 | `src-tauri/src/ai/mod.rs` | Add `InterviewMessage`, `InterviewRequest`, `ai_interview` command. Extend `DraftRequest` with `interview_transcript`. Update `ai_draft` to pass transcript through to `build_user_prompt`. |
 | `src-tauri/src/ai/prompt.rs` | Add `build_interview_prompt`, `build_interview_user_prompt`. Extend `build_user_prompt` signature. |
-| `src-tauri/src/interview.rs` | NEW. `interview_save_transcript` command + markdown writer. |
-| `src-tauri/src/lib.rs` | `mod interview;`. Register `ai::ai_interview`, `interview::interview_save_transcript` in `generate_handler!`. |
+| `src-tauri/src/history.rs` | NEW. `ticket_save_history` command + markdown writer. |
+| `src-tauri/src/lib.rs` | `mod history;`. Register `ai::ai_interview`, `history::ticket_save_history` in `generate_handler!`. |
 
 ## Open questions
 
