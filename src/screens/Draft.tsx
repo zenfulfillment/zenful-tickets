@@ -33,10 +33,13 @@ import {
   referenceRemove,
   referencePurgeSession,
   listenDraft,
+  ticketSaveHistory,
   type SubtaskExpansion,
 } from "../lib/tauri";
 import { errorMessage } from "../lib/errors";
+import { notify } from "../lib/notify";
 import { playUi } from "../lib/ui-sounds";
+import { Switch } from "../components/animate-ui/components/base/switch";
 import { Button } from "../components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import {
@@ -91,6 +94,14 @@ export function Draft() {
   const [thinking, setThinking] = useState(true);
   const [draft, setDraft] = useState<ParsedTicket | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
+
+  // Session-local override for the global "Split into subtasks" preference.
+  // Seeded from settings.splitIntoSubtasks; the user can flip it per-draft
+  // without mutating their default. Drives whether `handleCreate` actually
+  // posts sub-task issues (the model still proposes them either way).
+  const [splitIntoSubtasksLocal, setSplitIntoSubtasksLocal] = useState(
+    settings.splitIntoSubtasks,
+  );
 
   // Meta state
   const [meta, setMeta] = useState<MetaState>({
@@ -250,6 +261,7 @@ export function Draft() {
         model: ctx.model || undefined,
         attachment_ids: promptAttachments.map((a) => a.id),
         reference_ids: references.map((r) => r.id),
+        interview_transcript: ctx.interview_transcript,
       });
     } catch (e) {
       if (!isCurrent()) return;
@@ -513,14 +525,21 @@ export function Draft() {
     const rawBody = streamBody.length > 0
       ? streamBody
       : (draft.description ?? "").trim();
-    const subtasks = (draft.subtasks ?? [])
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    // Honour the session-local toggle: if the user flipped "Split into
+    // subtasks" off, we don't post any sub-tasks even when the model
+    // proposed them. We still need to know whether the model proposed
+    // them in the first place so we can strip the `### Subtasks` block
+    // out of the parent description (avoiding orphan bullet lists).
+    const subtasks = splitIntoSubtasksLocal
+      ? (draft.subtasks ?? []).map((s) => s.trim()).filter((s) => s.length > 0)
+      : [];
+    const hasProposedSubtasks =
+      (draft.subtasks ?? []).filter((s) => s.trim().length > 0).length > 0;
     let description_markdown = rawBody.replace(
       /^\s*#{1,6}[ \t]+Title[ \t]*\n[^\n]*(?:\n+|$)/i,
       "",
     );
-    if (subtasks.length > 0) {
+    if (hasProposedSubtasks) {
       description_markdown = stripSubtasksSection(description_markdown);
     }
     description_markdown = description_markdown.trim();
@@ -606,6 +625,16 @@ export function Draft() {
     const updateStep = (id: string, patch: Partial<PipelineStep>) => {
       setPipelineSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
     };
+
+    // Captures the title → AI body → Jira key triple for every sub-task
+    // that successfully landed. Forwarded into `ticketSaveHistory` so the
+    // local history record can later be restored 1:1 in the Ticket History
+    // UI (without re-hitting Jira just to enumerate children).
+    const createdSubtasks: {
+      jira_key: string;
+      title: string;
+      description_markdown?: string;
+    }[] = [];
 
     try {
       // ── Step: Main ticket ──────────────────────────────────────
@@ -730,7 +759,7 @@ export function Draft() {
             const exp = expansionByTitle.get(summary) ?? expansions[i];
             const body = exp?.description_markdown?.trim() || undefined;
             try {
-              await jiraCreateSubtask({
+              const subResp = await jiraCreateSubtask({
                 parent_key: created.key,
                 project_key: meta.selectedProjectKey,
                 subtask_issue_type_id: subtaskIssueType.id,
@@ -738,6 +767,14 @@ export function Draft() {
                 description_markdown: body,
               });
               made++;
+              // Record the full title→body→jira_key triple so the local
+              // ticket-history save below has a faithful record of what
+              // landed (the future Ticket History UI restores from this).
+              createdSubtasks.push({
+                jira_key: subResp.key,
+                title: summary,
+                description_markdown: body,
+              });
               updateStep("subtasks", { detail: `${made} / ${subtasks.length}` });
             } catch (e) {
               console.warn("subtask creation failed:", summary, e);
@@ -763,6 +800,40 @@ export function Draft() {
         }
       } catch {}
       try { await clipboardWrite(url); } catch {}
+
+      // Best-effort: persist a local ticket record for the future Ticket
+      // History UI. Failure is non-fatal — the Jira ticket is already live,
+      // so we just surface a warning toast and move on rather than blocking
+      // the success state on a local-disk write.
+      void ticketSaveHistory({
+        jira_key: created.key,
+        jira_url: created.browse_url ?? undefined,
+        provider: ctx.provider,
+        mode: ctx.mode,
+        model: ctx.model,
+        project_key: meta.selectedProjectKey!,
+        issue_type:
+          meta.issueTypes.find((t) => t.id === meta.selectedIssueTypeId)?.name
+          ?? draft.type,
+        priority: meta.priorities.find((p) => p.id === meta.selectedPriorityId)?.name,
+        epic_key: meta.selectedEpicKey ?? undefined,
+        assignee_account_id:
+          meta.selectedAssignee?.accountId
+          ?? (settings.autoAssign ? myAccountIdRef.current ?? undefined : undefined),
+        labels: draft.labels ?? [],
+        subtask_keys: createdSubtasks.map((s) => s.jira_key),
+        title: draft.title,
+        initial_prompt: ctx.prompt,
+        interview_transcript: ctx.interview_transcript,
+        description_markdown,
+        subtasks: createdSubtasks,
+      }).catch((e) => {
+        console.warn("ticket_save_history failed:", e);
+        notify("Couldn't save local ticket history", {
+          kind: "warning",
+          description: e instanceof Error ? e.message : String(e),
+        });
+      });
 
       setPipelineDone(true);
     } catch (e) {
@@ -959,6 +1030,32 @@ export function Draft() {
         }}>
           <div style={{ font: "600 11px var(--font-text)", color: "var(--fg-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 12 }}>
             Details
+          </div>
+
+          {/* Session-local override for the "Split into subtasks" preference.
+              Flipping this only affects the CURRENT draft — the global default
+              still lives in Settings. The model always proposes sub-tasks; this
+              toggle just decides whether `handleCreate` actually posts them. */}
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "10px 0 14px",
+            borderBottom: "0.5px solid var(--border)",
+            marginBottom: 14,
+          }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <span style={{ font: "500 12.5px var(--font-text)", color: "var(--fg)" }}>
+                Split into subtasks
+              </span>
+              <span style={{ font: "400 11px var(--font-text)", color: "var(--fg-subtle)" }}>
+                This draft only
+              </span>
+            </div>
+            <Switch
+              checked={splitIntoSubtasksLocal}
+              onCheckedChange={setSplitIntoSubtasksLocal}
+            />
           </div>
 
           <MetaRow label="Project">
