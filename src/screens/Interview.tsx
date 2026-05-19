@@ -104,8 +104,10 @@ export function Interview() {
           request_id: requestId,
           provider: ctx.provider as Provider,
           mode: ctx.mode,
+          // Original plan goes in the system prompt via ${INPUT}; the
+          // messages history carries only the back-and-forth turns.
+          initial_prompt: ctx.prompt,
           messages: history,
-          tone: settings.tone,
           custom_system_prompt: settings.systemPrompt || undefined,
           model: ctx.model || undefined,
           attachment_ids: ctx.attachments?.map((a) => a.id) ?? [],
@@ -117,17 +119,16 @@ export function Interview() {
         setStreamError(e instanceof Error ? e.message : String(e));
       }
     },
-    [ctx, settings.tone, settings.systemPrompt],
+    [ctx, settings.systemPrompt],
   );
 
-  // First turn — seed transcript with the Main prompt and call the model.
+  // First turn — model gets the system prompt (with the plan baked in)
+  // plus an empty messages array, so its first response is the opening
+  // question. The original prompt renders as a header card above the
+  // thread for the user's reference; it is NOT a message bubble.
   useEffect(() => {
     if (!ctx) return;
-    const seed: InterviewMessage[] = [
-      { role: "user", content: ctx.prompt, ts: Date.now() },
-    ];
-    setMessages(seed);
-    void runTurn(seed);
+    void runTurn([]);
     return () => cleanupRef.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -226,7 +227,7 @@ export function Interview() {
             <Icon.Chevron size={14} dir="left" />
           </Button>
           <div style={{ color: "var(--fg-muted)", font: "500 12px var(--font-text)" }}>
-            Interview · {model.short}
+            Refinement · {model.short}
           </div>
           <div style={{ width: 32 }} />
         </div>
@@ -248,6 +249,32 @@ export function Interview() {
             gap: 12,
           }}
         >
+          {/* Plan header — visual reference for the user. The plan itself
+              lives in the system prompt via ${INPUT}; not a chat bubble. */}
+          <div style={{
+            alignSelf: "stretch",
+            background: "rgba(255,255,255,0.03)",
+            border: "0.5px dashed var(--border-strong)",
+            borderRadius: 10,
+            padding: "10px 14px",
+            color: "var(--fg-muted)",
+            font: "400 13px var(--font-text)",
+            lineHeight: 1.55,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            marginBottom: 4,
+          }}>
+            <div style={{
+              font: "600 10px var(--font-mono)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "var(--fg-subtle)",
+              marginBottom: 6,
+            }}>
+              Plan to refine
+            </div>
+            {ctx.prompt}
+          </div>
           {messages.map((m, i) => (
             <Bubble key={i} role={m.role} text={m.content} />
           ))}
@@ -275,7 +302,7 @@ export function Interview() {
               font: "500 12.5px var(--font-text)",
               display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
             }}>
-              <span>I have what I need. Ready to draft the ticket?</span>
+              <span>Refinement looks complete. Generate the ticket?</span>
               <Button variant="primary" onClick={() => void handleGenerate()} disabled={!canGenerate}>
                 Generate ticket
               </Button>

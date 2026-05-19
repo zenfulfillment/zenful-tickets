@@ -168,8 +168,11 @@ export interface AiInterviewRequest {
   request_id: string;
   provider: Provider;
   mode: "PO" | "DEV";
+  /** Original prompt from Main. Substituted into the system prompt's
+   *  `${INPUT}` placeholder so the agent always knows the plan it is
+   *  refining, independent of the messages history. */
+  initial_prompt: string;
   messages: InterviewMessage[];
-  tone?: AppSettings["tone"];
   custom_system_prompt?: string;
   model?: string;
   attachment_ids?: string[];

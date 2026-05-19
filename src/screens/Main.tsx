@@ -949,10 +949,10 @@ function InterviewModePill({
     showTooltip({
       content: (
         <div>
-          <div style={{ font: "600 12px var(--font-mono)", marginBottom: 2 }}>Interview Mode</div>
+          <div style={{ font: "600 12px var(--font-mono)", marginBottom: 2 }}>Refinement Mode</div>
           <div style={{ font: "400 11px var(--font-mono)", color: "var(--background)", opacity: 0.65, lineHeight: 1.5 }}>
-            Agent asks you questions until a ticket is ready,<br />
-            instead of using just the initial prompt context
+            Agent asks you questions until the plan is sharp,<br />
+            instead of drafting straight from the initial prompt
           </div>
         </div>
       ),
@@ -1006,7 +1006,7 @@ function InterviewModePill({
             background: checked ? "currentColor" : "transparent",
           }}
         />
-        Interview Mode
+        Refinement Mode
       </button>
     </span>
   );

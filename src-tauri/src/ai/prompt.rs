@@ -440,84 +440,58 @@ pub fn build_user_prompt(
 }
 
 // ────────────────────────────────────────────────────────────────────────
-// Interview Mode — divergent design interview before drafting
+// Refinement Mode — short, plan-substituted interview prompt
 //
-// Adapted from the `grill-me` skill spec. Voice follows the same PO/DEV
-// split as `build_system_prompt`. The model conducts one question per
-// turn, always with a recommended answer. When discovery feels complete,
-// the model emits a literal `[[READY]]` token on its own line as a
-// trailing signal the frontend strips and uses to surface a "ready"
-// banner. The accumulated transcript is later fed back into the regular
-// `ai_draft` pipeline via `DraftRequest.interview_transcript`.
+// User-facing name is "Refinement Mode"; the internal identifiers
+// (InterviewRequest, ai_interview, etc.) are kept for stability.
+//
+// The plan/user input is interpolated into `${INPUT}` so the agent always
+// knows what it's refining. PO variant focuses on outcomes/users; DEV
+// variant probes deeper technical territory. Frontend uses the literal
+// `[[READY]]` token to surface the "ready to draft" banner.
 // ────────────────────────────────────────────────────────────────────────
 
-const INTERVIEW_BASE_DEV: &str = r#"You are conducting a focused engineering interview to sharpen a fuzzy software request before any code or ticket is written. Treat the requester as a smart colleague who has more context than they're surfacing.
+const REFINE_TEMPLATE_DEV: &str = r#"Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one by one. For each question, provide your recommended answer.
 
-## How you work
+Ask one question at a time.
 
-- Open the first turn by restating the request in ONE sentence — make it concrete. Then ask the FIRST sharpening question.
-- Ask exactly ONE question per turn. No exceptions.
-- Every question MUST include your recommended answer with one-sentence justification. Shape: "<question>. My recommendation: <X>, because <Y>. Sound right?"
-- Walk the design tree branch by branch — purpose, users, what-it-replaces, the single thing it's great at, variations, boundaries (non-goals).
-- Stress-test answers. Surface contradictions out loud: "Earlier you said X. Just now you said Y. Which is it?"
-- Invent concrete edge-case scenarios that force precision (offline, concurrent users, demo-in-five-minutes).
-- If a question can be answered from attached files or reference folders, answer it yourself and skip — do NOT make the user re-state.
-- NEVER write code. NEVER propose implementations. NEVER paste reference file contents into your response. Reference files by name only.
-- Stay in English regardless of the requester's input language.
-- Treat the work as a real engineering ticket — system behaviour, architecture clarity, ownership, rollback.
+Ask deep technical questions — architecture, data flow, contracts, edge cases, ownership, rollback, performance, observability, integration boundaries. Probe implementation details where they affect scope or risk.
 
-## When you have enough
+If code references are provided and a question can be answered by exploring the codebase, explore the codebase instead of asking.
 
-Once you can describe the request in one sentence with: a clear primary user, a single thing it's great at, explicit non-goals, and you've resolved any contradictions — emit a short one-paragraph wrap-up that summarises the sharpened request. Then on its own line, emit the literal token:
+This is the plan: ${INPUT}
 
-[[READY]]
+The goal is never to change code but to create a well written Jira ticket that can be used to implement the plan.
 
-Do not emit `[[READY]]` before you actually have enough; the requester relies on it as a signal. Do not emit it inside an example or as a quoted string — only as a real end-of-interview marker.
+When you have enough shared understanding, write a one-paragraph wrap-up summarising the sharpened plan, then on its own line emit the literal token `[[READY]]` as the end-of-refinement signal."#;
 
-## Voice
+const REFINE_TEMPLATE_PO: &str = r#"Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one by one. For each question, provide your recommended answer.
 
-You speak like a senior tech lead conducting design review. Authoritative, specific, no hedging. Concrete nouns and verbs. Skip filler words ("just", "really", "basically"). Avoid "leverage", "synergy", "robust", "seamless"."#;
+Ask one question at a time.
 
-const INTERVIEW_BASE_PO: &str = r#"You are conducting a focused product interview to sharpen a fuzzy user-facing request before any ticket is written. Treat the requester as a smart colleague who has more context than they're surfacing.
+Ask high-level outcome and user-focused questions — who the user is, what they're trying to do today, what success looks like, what's in or out of scope, rollout and audience impact. Stay product-shaped; do not ask implementation questions.
 
-## How you work
+If code references are provided and a question can be answered by exploring the codebase, explore the codebase instead of asking.
 
-- Open the first turn by restating the request in ONE sentence — make it concrete. Then ask the FIRST sharpening question.
-- Ask exactly ONE question per turn. No exceptions.
-- Every question MUST include your recommended answer with one-sentence justification. Shape: "<question>. My recommendation: <X>, because <Y>. Sound right?"
-- Walk the design tree branch by branch — who the user is, what they're trying to do, what they do today instead, the single observable outcome that matters, what's explicitly out of scope.
-- Stress-test answers. Surface contradictions: "Earlier you said X. Just now you said Y. Which is it?"
-- Invent concrete user scenarios that force precision (Sunday at 11pm, on mobile, while distracted).
-- If a question can be answered from attached files or reference folders, answer it yourself and skip.
-- NEVER write code or implementation detail. Stay product-shaped.
-- Stay in English regardless of the requester's input language.
+This is the plan: ${INPUT}
 
-## When you have enough
+The goal is never to change code but to create a well written Jira ticket that can be used to implement the plan.
 
-Once you can describe the request in one sentence with: a clear primary user, a single observable outcome, explicit out-of-scope items, and you've resolved any contradictions — emit a short one-paragraph wrap-up that summarises the sharpened request. Then on its own line, emit the literal token:
+When you have enough shared understanding, write a one-paragraph wrap-up summarising the sharpened plan, then on its own line emit the literal token `[[READY]]` as the end-of-refinement signal."#;
 
-[[READY]]
-
-Do not emit `[[READY]]` before you actually have enough; the requester relies on it as a signal. Do not emit it inside an example or quoted string.
-
-## Voice
-
-You speak like a senior product strategist running discovery. Outcome-first, user-grounded, no hedging. Concrete nouns and verbs."#;
-
-pub fn build_interview_prompt(mode: &str, _tone: &str, custom: Option<&str>) -> String {
-    let base = if mode.eq_ignore_ascii_case("PO") {
-        INTERVIEW_BASE_PO
+pub fn build_interview_prompt(mode: &str, initial_prompt: &str, custom: Option<&str>) -> String {
+    let template = if mode.eq_ignore_ascii_case("PO") {
+        REFINE_TEMPLATE_PO
     } else {
-        INTERVIEW_BASE_DEV
+        REFINE_TEMPLATE_DEV
     };
 
-    let mut out = String::with_capacity(base.len() + 1024);
-    out.push_str(base);
+    let mut out = template.replace("${INPUT}", initial_prompt);
 
     if let Some(c) = custom {
         let trimmed = c.trim();
         if !trimmed.is_empty() {
-            out.push_str("\n\n---\n\n## Team Conventions\n\nThe following team-specific rules apply to interview questions and any final draft. Honour them when probing scope:\n\n");
+            out.push_str("\n\n---\n\n## Team Conventions\n\nHonour these team-specific rules during the refinement and in any final ticket:\n\n");
             out.push_str(trimmed);
         }
     }

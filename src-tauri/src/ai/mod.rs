@@ -136,8 +136,11 @@ pub struct InterviewRequest {
     pub request_id: String,
     pub provider: Provider,
     pub mode: String,                     // "PO" | "DEV"
+    /// The user's original prompt from Main. Gets substituted into the
+    /// system prompt's `${INPUT}` placeholder so the agent always knows
+    /// what plan it is refining.
+    pub initial_prompt: String,
     pub messages: Vec<InterviewMessage>,
-    #[serde(default)] pub tone: Option<String>,
     #[serde(default)] pub custom_system_prompt: Option<String>,
     #[serde(default)] pub model: Option<String>,
     #[serde(default)] pub attachment_ids: Vec<String>,
@@ -413,7 +416,7 @@ pub async fn ai_interview(
 
     let system = prompt::build_interview_prompt(
         &req.mode,
-        req.tone.as_deref().unwrap_or("balanced"),
+        &req.initial_prompt,
         req.custom_system_prompt.as_deref(),
     );
     let base_user = prompt::build_interview_user_prompt(&req.messages);
