@@ -5,6 +5,7 @@ import { Button } from "../components/ui/button";
 import { Icon } from "../components/Icon";
 import { ArrowRightIcon, MicIcon } from "../components/icons-animated";
 import { VoiceWave } from "../components/primitives";
+import { Shimmer } from "../components/ai-elements/shimmer";
 import {
   aiCancel,
   aiInterview,
@@ -241,7 +242,7 @@ export function Interview() {
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "8px 80px 16px",
+            padding: "24px 80px 16px",
             display: "flex",
             flexDirection: "column",
             gap: 12,
@@ -252,6 +253,9 @@ export function Interview() {
           ))}
           {streaming && streamingText.length > 0 && (
             <Bubble role="assistant" text={streamingText.replace(READY_RE, "")} streaming />
+          )}
+          {streaming && streamingText.length === 0 && (
+            <ShimmerBubble />
           )}
           {streamError && (
             <div className="card" style={{ padding: 10, borderColor: "rgba(255,69,58,0.4)", background: "rgba(255,69,58,0.06)", color: "#ff453a" }}>
@@ -283,8 +287,8 @@ export function Interview() {
         <div style={{ padding: "12px 80px 20px" }}>
           <div style={{
             display: "flex",
-            alignItems: "flex-end",
-            gap: 8,
+            alignItems: "center",
+            gap: 6,
             background: "var(--bg-card)",
             border: "0.5px solid var(--border-strong)",
             borderRadius: 14,
@@ -369,6 +373,44 @@ function Bubble({ role, text, streaming }: { role: "user" | "assistant"; text: s
         }}
       >
         {text}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Assistant-bubble placeholder shown while an interview turn is in flight
+ * but no chunks have arrived yet. Shimmer text cycles through the phrases
+ * so the user knows the request is alive (and not silently hung) before
+ * the first character of the response lands.
+ */
+function ShimmerBubble() {
+  const phrases = [
+    "Thinking…",
+    "Sharpening the question…",
+    "Drafting a recommendation…",
+    "Looking for contradictions…",
+  ];
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setIdx((i) => (i + 1) % phrases.length), 2200);
+    return () => window.clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-start" }}>
+      <div
+        style={{
+          maxWidth: 620,
+          padding: "10px 14px",
+          borderRadius: 12,
+          background: "var(--bg-card)",
+          border: "0.5px solid var(--border-strong)",
+          font: "400 14px var(--font-text)",
+          lineHeight: 1.55,
+        }}
+      >
+        <Shimmer as="span" duration={1.6} spread={2}>{phrases[idx]}</Shimmer>
       </div>
     </div>
   );
