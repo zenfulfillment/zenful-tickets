@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AiInterviewRequest,
   AttachmentRef,
   CreateIssueResponse,
   DetectResult,
@@ -13,6 +14,8 @@ import type {
   ParsedTicket,
   Provider,
   ReferenceEntry,
+  SaveHistoryPayload,
+  SaveHistoryResult,
   SecretsPatch,
   SecretsStatus,
 } from "../types";
@@ -176,9 +179,29 @@ export interface DraftArgs {
    * into the prompt as analysis context. NEVER uploaded to Jira.
    */
   reference_ids?: string[];
+  /** Set by the Interview → Draft handoff. When present, the backend
+   *  prompt builder splices it in as authoritative context (see
+   *  `src-tauri/src/ai/prompt.rs::build_user_prompt`). */
+  interview_transcript?: string;
 }
 
 export const aiDraft = (req: DraftArgs) => invoke<void>("ai_draft", { req });
+
+export const aiInterview = (req: AiInterviewRequest) =>
+  invoke<void>("ai_interview", { req });
+
+export async function listenInterview(
+  requestId: string,
+  handlers: DraftEventHandlers,
+): Promise<UnlistenFn> {
+  // Mirrors listenDraft — the backend reuses ai:chunk / ai:done / ai:error
+  // event names so a single subscriber pattern works for both paths.
+  return listenDraft(requestId, handlers);
+}
+
+export const ticketSaveHistory = (req: SaveHistoryPayload) =>
+  invoke<SaveHistoryResult>("ticket_save_history", { req });
+
 export const aiCancel = (requestId: string) =>
   invoke<void>("ai_cancel", { requestId });
 export const aiOpenLogin = (provider: "claude" | "codex" | "opencode") =>

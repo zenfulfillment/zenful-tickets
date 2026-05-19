@@ -152,6 +152,64 @@ export interface ParsedTicket {
   tech_notes?: string;
 }
 
+/**
+ * One message in the Interview screen's chat thread. The role string
+ * matches the chat-completions convention so it can be mapped 1:1 onto
+ * provider-native chat arrays if we ever move off stateless replay.
+ */
+export interface InterviewMessage {
+  role: "user" | "assistant";
+  content: string;
+  /** Unix milliseconds. Used for transcript ordering + frontmatter timestamp. */
+  ts: number;
+}
+
+export interface AiInterviewRequest {
+  request_id: string;
+  provider: Provider;
+  mode: "PO" | "DEV";
+  /** Original prompt from Main. Substituted into the system prompt's
+   *  `${INPUT}` placeholder so the agent always knows the plan it is
+   *  refining, independent of the messages history. */
+  initial_prompt: string;
+  messages: InterviewMessage[];
+  custom_system_prompt?: string;
+  model?: string;
+  attachment_ids?: string[];
+  reference_ids?: string[];
+}
+
+export interface SavedSubtask {
+  jira_key: string;
+  title: string;
+  description_markdown?: string;
+}
+
+export interface SaveHistoryPayload {
+  jira_key: string;
+  jira_url?: string;
+  provider: Provider;
+  mode: "PO" | "DEV";
+  model?: string;
+  project_key: string;
+  issue_type: string;
+  priority?: string;
+  epic_key?: string;
+  assignee_account_id?: string;
+  labels: string[];
+  subtask_keys: string[];
+  title: string;
+  initial_prompt: string;
+  interview_transcript?: string;
+  description_markdown: string;
+  subtasks: SavedSubtask[];
+}
+
+export interface SaveHistoryResult {
+  path: string;
+  id: string;
+}
+
 export interface DraftDoneEvent {
   request_id: string;
   text: string;
@@ -184,6 +242,15 @@ export interface AppSettings {
   // drafting
   defaultMode: "PO" | "DEV";
   submitOnEnter: boolean;
+  /** When true, submit on Main routes through the Interview screen
+   *  before the Draft screen. The state is persisted purely for
+   *  stickiness across sessions — same pattern as `defaultMode`. */
+  interviewMode: boolean;
+  /** Global default for whether Draft's create pipeline runs the
+   *  sub-task expansion + creation steps. The Draft sidebar has a
+   *  session-only override that copies this value on mount and does
+   *  NOT write back. */
+  splitIntoSubtasks: boolean;
   tone: "concise" | "balanced" | "detailed";
   systemPrompt: string;
   // voice
@@ -214,6 +281,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   streaming: true,
   defaultMode: "PO",
   submitOnEnter: true,
+  interviewMode: false,
+  splitIntoSubtasks: true,
   tone: "balanced",
   systemPrompt: "",
   voiceEnabled: true,

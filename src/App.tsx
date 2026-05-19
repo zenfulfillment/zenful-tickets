@@ -7,8 +7,10 @@ import { listenSummon, setGlobalShortcut } from "./lib/tauri";
 import { notify, notifyUpdate } from "./lib/notify";
 import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { TooltipProvider as GlobalTooltipProvider } from "./components/ui/global-tooltip";
 import { Onboarding } from "./screens/Onboarding";
 import { Main } from "./screens/Main";
+import { Interview } from "./screens/Interview";
 import { Draft } from "./screens/Draft";
 import { Settings } from "./screens/Settings";
 
@@ -42,7 +44,7 @@ export default function App() {
     let unlisten: (() => void) | undefined;
     listenSummon(() => {
       const st = useAppStore.getState();
-      if (st.screen === "draft" || st.screen === "settings") return;
+      if (st.screen === "draft" || st.screen === "settings" || st.screen === "interview") return;
       st.setScreen("main");
     }).then((fn) => {
       unlisten = fn;
@@ -83,7 +85,8 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <div className="app-root">
+      <GlobalTooltipProvider>
+        <div className="app-root">
         {/* macOS: invisible draggable strip behind the traffic-light dots so the
             window can be moved by grabbing anywhere along the top. On Windows /
             Linux the OS already provides chrome above us — the strip collapses
@@ -92,12 +95,14 @@ export default function App() {
         {screen === "loading" && <LoadingStub />}
         {screen === "onboarding" && <Onboarding />}
         {screen === "main" && <Main />}
+        {screen === "interview" && <Interview />}
         {screen === "draft" && <Draft />}
         {screen === "settings" && <Settings />}
         {/* Single Toaster — bottom-left default; the update toast overrides
             its own position to bottom-right via lib/notify.ts. */}
         <Toaster />
       </div>
+      </GlobalTooltipProvider>
     </TooltipProvider>
   );
 }

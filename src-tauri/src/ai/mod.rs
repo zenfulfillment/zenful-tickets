@@ -71,6 +71,11 @@ pub struct DraftRequest {
     /// They are NEVER uploaded to Jira.
     #[serde(default)]
     pub reference_ids: Vec<String>,
+    /// When present, the prompt builder splices the transcript in as
+    /// authoritative context (see `prompt::build_user_prompt`). Set by
+    /// the Interview screen's "Generate ticket" handoff.
+    #[serde(default)]
+    pub interview_transcript: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -113,6 +118,33 @@ pub struct ParsedTicket {
     pub acceptance_criteria: Vec<String>,
     #[serde(default)]
     pub tech_notes: String,
+}
+
+/// One message in an interview turn. The role string matches the
+/// chat-completions convention so it maps 1:1 onto provider-native chat
+/// arrays if we ever move off stateless replay.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct InterviewMessage {
+    pub role: String,    // "user" | "assistant"
+    pub content: String,
+    #[serde(default)]
+    pub ts: i64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct InterviewRequest {
+    pub request_id: String,
+    pub provider: Provider,
+    pub mode: String,                     // "PO" | "DEV"
+    /// The user's original prompt from Main. Gets substituted into the
+    /// system prompt's `${INPUT}` placeholder so the agent always knows
+    /// what plan it is refining.
+    pub initial_prompt: String,
+    pub messages: Vec<InterviewMessage>,
+    #[serde(default)] pub custom_system_prompt: Option<String>,
+    #[serde(default)] pub model: Option<String>,
+    #[serde(default)] pub attachment_ids: Vec<String>,
+    #[serde(default)] pub reference_ids: Vec<String>,
 }
 
 /// Result of an `ai_expand_subtasks` call — one entry per sub-task we asked
@@ -219,7 +251,11 @@ pub async fn ai_draft(
         req.tone.as_deref().unwrap_or("balanced"),
         req.custom_system_prompt.as_deref(),
     );
-    let base_user = prompt::build_user_prompt(&req.prompt, req.refine_of.as_deref());
+    let base_user = prompt::build_user_prompt(
+        &req.prompt,
+        req.refine_of.as_deref(),
+        req.interview_transcript.as_deref(),
+    );
 
     // Resolve attachments from the registry, then route per provider — see
     // `route_attachments` for the matrix. The text payload (xlsx/csv/pdf
@@ -335,6 +371,146 @@ pub async fn ai_draft(
             );
         } else if let Some(err) = backend_err.or(last_error) {
             log::warn!("ai_draft error: request_id={} err={}", rid, err);
+            let _ = app_for_events.emit(&error_event, &err);
+        }
+
+        cancellers.lock().await.remove(&rid);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn ai_interview(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    req: InterviewRequest,
+) -> AppResult<()> {
+    let request_id = req.request_id.clone();
+    log::info!(
+        "ai_interview start: request_id={} provider={:?} mode={} messages={} attachments={} references={}",
+        request_id,
+        req.provider,
+        req.mode,
+        req.messages.len(),
+        req.attachment_ids.len(),
+        req.reference_ids.len(),
+    );
+
+    let (chunks_tx, mut chunks_rx) = mpsc::channel::<StreamChunk>(64);
+    let (cancel_tx, cancel_rx) = oneshot::channel::<()>();
+
+    state
+        .ai_cancellers
+        .lock()
+        .await
+        .insert(request_id.clone(), {
+            let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<()>(1);
+            tokio::spawn(async move {
+                if mpsc_rx.recv().await.is_some() {
+                    let _ = cancel_tx.send(());
+                }
+            });
+            mpsc_tx
+        });
+
+    let system = prompt::build_interview_prompt(
+        &req.mode,
+        &req.initial_prompt,
+        req.custom_system_prompt.as_deref(),
+    );
+    let base_user = prompt::build_interview_user_prompt(&req.messages);
+
+    let resolved = attachments::resolve_many(&state.attachments, &req.attachment_ids);
+    let route = route_attachments(req.provider, &resolved);
+    let user = match route.text_payload {
+        Some(suffix) => format!("{base_user}{suffix}"),
+        None => base_user,
+    };
+    let user = if req.reference_ids.is_empty() {
+        user
+    } else {
+        let ref_payload = state.references.build_payload_for_ids(&req.reference_ids).await;
+        match ref_payload {
+            Some(rp) => format!("{user}{rp}"),
+            None => user,
+        }
+    };
+
+    let http = state.http.clone();
+    let provider = req.provider;
+    let model = req.model.clone();
+    let image_paths = route.image_paths;
+    let inline_attachments = route.inline_attachments;
+    let app_for_or = app.clone();
+    let backend = tokio::spawn(async move {
+        match provider {
+            Provider::ClaudeCli => cli::stream(cli::Cli::Claude, system, user, model, image_paths, chunks_tx, cancel_rx).await,
+            Provider::CodexCli => cli::stream(cli::Cli::Codex, system, user, model, Vec::new(), chunks_tx, cancel_rx).await,
+            Provider::Gemini => {
+                let key = secrets::load()
+                    .ok()
+                    .and_then(|s| s.gemini_key)
+                    .ok_or_else(|| AppError::Ai("gemini API key not set".into()))?;
+                gemini::stream(http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
+            }
+            Provider::OpenRouter => {
+                let key = secrets::load()
+                    .ok()
+                    .and_then(|s| s.openrouter_key)
+                    .ok_or_else(|| AppError::Ai("openrouter API key not set".into()))?;
+                openrouter::stream(app_for_or, http, key, system, user, model, inline_attachments, chunks_tx, cancel_rx).await
+            }
+            Provider::OpenCode => cli::stream(cli::Cli::OpenCode, system, user, model, image_paths, chunks_tx, cancel_rx).await,
+        }
+    });
+
+    let app_for_events = app.clone();
+    let rid = request_id.clone();
+    let cancellers = state.ai_cancellers.clone();
+    tokio::spawn(async move {
+        let mut accum = String::new();
+        let chunk_event = format!("ai:chunk:{rid}");
+        let done_event = format!("ai:done:{rid}");
+        let error_event = format!("ai:error:{rid}");
+        let mut last_error: Option<String> = None;
+
+        while let Some(chunk) = chunks_rx.recv().await {
+            match chunk {
+                StreamChunk::Text(t) => {
+                    accum.push_str(&t);
+                    let _ = app_for_events.emit(&chunk_event, &t);
+                }
+                StreamChunk::Error(e) => {
+                    last_error = Some(e.clone());
+                    let _ = app_for_events.emit(&error_event, &e);
+                }
+            }
+        }
+
+        let backend_err = match backend.await {
+            Ok(Ok(())) => None,
+            Ok(Err(e)) => Some(e.to_string()),
+            Err(e) => Some(format!("join: {e}")),
+        };
+
+        if backend_err.is_none() && last_error.is_none() {
+            log::info!(
+                "ai_interview done: request_id={} text_len={}",
+                rid,
+                accum.len(),
+            );
+            // Interview turns never carry a parseable ticket block, so `ticket: None`.
+            let _ = app_for_events.emit(
+                &done_event,
+                &DraftDone {
+                    request_id: rid.clone(),
+                    text: accum,
+                    ticket: None,
+                },
+            );
+        } else if let Some(err) = backend_err.or(last_error) {
+            log::warn!("ai_interview error: request_id={} err={}", rid, err);
             let _ = app_for_events.emit(&error_event, &err);
         }
 

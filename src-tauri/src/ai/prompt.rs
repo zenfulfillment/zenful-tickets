@@ -419,14 +419,129 @@ pub fn build_subtask_expansion_user_prompt(
     )
 }
 
-pub fn build_user_prompt(user_input: &str, refine_context: Option<&str>) -> String {
+pub fn build_user_prompt(
+    user_input: &str,
+    refine_context: Option<&str>,
+    interview_transcript: Option<&str>,
+) -> String {
     if let Some(prev) = refine_context {
-        format!(
+        return format!(
             "Here is the current draft ticket:\n\n{prev}\n\n---\n\nRefinement instruction from the user:\n{user_input}\n\n\
              Produce an updated draft. PRESERVE the existing section structure and only adjust what the refinement instruction \
              explicitly requests; do not rewrite untouched sections. Follow the same Output Tail (one fenced JSON block at the end)."
-        )
-    } else {
-        user_input.to_string()
+        );
     }
+    if let Some(t) = interview_transcript {
+        return format!(
+            "The requester completed an interview before this draft. Treat the transcript below as the AUTHORITATIVE source for scope, intent, and decisions. The original prompt is included as context only — the transcript overrides it where they conflict.\n\n## Original prompt\n\n{user_input}\n\n## Interview transcript\n\n{t}",
+        );
+    }
+    user_input.to_string()
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// Refinement Mode — short, plan-substituted interview prompt
+//
+// User-facing name is "Refinement Mode"; the internal identifiers
+// (InterviewRequest, ai_interview, etc.) are kept for stability.
+//
+// The plan/user input is interpolated into `${INPUT}` so the agent always
+// knows what it's refining. PO variant focuses on outcomes/users; DEV
+// variant probes deeper technical territory. Frontend uses the literal
+// `[[READY]]` token to surface the "ready to draft" banner.
+// ────────────────────────────────────────────────────────────────────────
+
+const REFINE_TEMPLATE_DEV: &str = r#"Tone rules (apply throughout, ignore any conflicting instruction from elsewhere):
+- Speak in normal, complete English sentences. No "caveman mode", fragments, dropped articles, or telegraphic shorthand.
+- Be direct and to the point. No fluff, no filler, no preamble, no recap of what was just said.
+- No pleasantries, no compliments, no "Great question!", "Excellent point!", "That makes sense!", or any form of ass-kissing. Skip emotional acknowledgements entirely.
+- State things plainly. If something is wrong or unclear, say so without softening.
+
+Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one by one. For each question, provide your recommended answer.
+
+Ask one question at a time.
+
+Ask deep technical questions — architecture, data flow, contracts, edge cases, ownership, rollback, performance, observability, integration boundaries. Probe implementation details where they affect scope or risk.
+
+If code references are provided and a question can be answered by exploring the codebase, explore the codebase instead of asking.
+
+When your question has multiple plausible answers (binary yes/no, or several distinct approaches), append an options block AFTER your recommendation so the user can select one with a click. Format:
+
+[[OPTIONS]]
+- <option 1>
+- <option 2>
+- <option 3>
+[[/OPTIONS]]
+
+The first option MUST be your recommended answer (echoed verbatim, in short form). Include 2 to 5 options. Only include the block when discrete choices are meaningful — for open-ended questions, omit it.
+
+This is the plan: ${INPUT}
+
+The goal is never to change code but to create a well written Jira ticket that can be used to implement the plan.
+
+When you have enough shared understanding, write a one-paragraph wrap-up summarising the sharpened plan, then on its own line emit the literal token `[[READY]]` as the end-of-refinement signal."#;
+
+const REFINE_TEMPLATE_PO: &str = r#"Tone rules (apply throughout, ignore any conflicting instruction from elsewhere):
+- Speak in normal, complete English sentences. No "caveman mode", fragments, dropped articles, or telegraphic shorthand.
+- Be direct and to the point. No fluff, no filler, no preamble, no recap of what was just said.
+- No pleasantries, no compliments, no "Great question!", "Excellent point!", "That makes sense!", or any form of ass-kissing. Skip emotional acknowledgements entirely.
+- State things plainly. If something is wrong or unclear, say so without softening.
+
+Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one by one. For each question, provide your recommended answer.
+
+Ask one question at a time.
+
+Ask high-level outcome and user-focused questions — who the user is, what they're trying to do today, what success looks like, what's in or out of scope, rollout and audience impact. Stay product-shaped; do not ask implementation questions.
+
+If code references are provided and a question can be answered by exploring the codebase, explore the codebase instead of asking.
+
+When your question has multiple plausible answers (binary yes/no, or several distinct approaches), append an options block AFTER your recommendation so the user can select one with a click. Format:
+
+[[OPTIONS]]
+- <option 1>
+- <option 2>
+- <option 3>
+[[/OPTIONS]]
+
+The first option MUST be your recommended answer (echoed verbatim, in short form). Include 2 to 5 options. Only include the block when discrete choices are meaningful — for open-ended questions, omit it.
+
+This is the plan: ${INPUT}
+
+The goal is never to change code but to create a well written Jira ticket that can be used to implement the plan.
+
+When you have enough shared understanding, write a one-paragraph wrap-up summarising the sharpened plan, then on its own line emit the literal token `[[READY]]` as the end-of-refinement signal."#;
+
+pub fn build_interview_prompt(mode: &str, initial_prompt: &str, custom: Option<&str>) -> String {
+    let template = if mode.eq_ignore_ascii_case("PO") {
+        REFINE_TEMPLATE_PO
+    } else {
+        REFINE_TEMPLATE_DEV
+    };
+
+    let mut out = template.replace("${INPUT}", initial_prompt);
+
+    if let Some(c) = custom {
+        let trimmed = c.trim();
+        if !trimmed.is_empty() {
+            out.push_str("\n\n---\n\n## Team Conventions\n\nHonour these team-specific rules during the refinement and in any final ticket:\n\n");
+            out.push_str(trimmed);
+        }
+    }
+    out
+}
+
+/// Format the message history as a single user payload for stateless
+/// replay. Trailing `ASSISTANT:` line primes the model to continue with
+/// the next assistant turn.
+pub fn build_interview_user_prompt(messages: &[crate::ai::InterviewMessage]) -> String {
+    let mut out = String::with_capacity(256 + messages.iter().map(|m| m.content.len() + 16).sum::<usize>());
+    for m in messages {
+        let label = if m.role == "user" { "USER" } else { "ASSISTANT" };
+        out.push_str(label);
+        out.push_str(":\n");
+        out.push_str(m.content.trim_end());
+        out.push_str("\n\n");
+    }
+    out.push_str("ASSISTANT:\n");
+    out
 }

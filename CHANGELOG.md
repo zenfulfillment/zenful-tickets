@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15] — 2026-05-19
+
+### Added
+- **Refinement Mode option cards**: assistant questions now render interactive
+  option cards — tap to select and auto-submit without typing
+- **Refinement Mode shimmer loading**: animated shimmer bubble with rotating
+  phrases replaces the blank wait while the AI processes
+
+### Changed
+- **Refinement Mode rename**: Interview Mode renamed to Refinement Mode throughout
+  the UI, with a focused plan-card header showing the original prompt
+- **Refinement tone enforcement**: system prompt now explicitly forbids caveman
+  fragments, pleasantries, and preamble — responses stay direct and fluent
+
+### Fixed
+- **Refinement screen hotkey guard**: `Cmd+I` no longer re-enters Refinement
+  while already on the screen
+- **Refinement Generate gate**: Generate button blocked until required fields
+  are filled
+- **Plan card spacing + composer alignment**: plan header card no longer
+  overlaps the thread; composer input placeholder vertically centered
+- **Interview Mode tooltip**: pill tooltip centered correctly under the button
+- **Global TooltipProvider**: mounted at app root so `useGlobalTooltip` works
+  on all screens without context errors
+
 ## [0.1.14] — 2026-05-08
 
 ### Fixed
