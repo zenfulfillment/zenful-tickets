@@ -7,6 +7,7 @@ import { listenSummon, setGlobalShortcut } from "./lib/tauri";
 import { notify, notifyUpdate } from "./lib/notify";
 import { Toaster } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { TooltipProvider as GlobalTooltipProvider } from "./components/ui/global-tooltip";
 import { Onboarding } from "./screens/Onboarding";
 import { Main } from "./screens/Main";
 import { Interview } from "./screens/Interview";
@@ -84,7 +85,8 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <div className="app-root">
+      <GlobalTooltipProvider>
+        <div className="app-root">
         {/* macOS: invisible draggable strip behind the traffic-light dots so the
             window can be moved by grabbing anywhere along the top. On Windows /
             Linux the OS already provides chrome above us — the strip collapses
@@ -100,6 +102,7 @@ export default function App() {
             its own position to bottom-right via lib/notify.ts. */}
         <Toaster />
       </div>
+      </GlobalTooltipProvider>
     </TooltipProvider>
   );
 }
