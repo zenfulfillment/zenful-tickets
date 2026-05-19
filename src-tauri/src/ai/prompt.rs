@@ -459,6 +459,16 @@ Ask deep technical questions — architecture, data flow, contracts, edge cases,
 
 If code references are provided and a question can be answered by exploring the codebase, explore the codebase instead of asking.
 
+When your question has multiple plausible answers (binary yes/no, or several distinct approaches), append an options block AFTER your recommendation so the user can select one with a click. Format:
+
+[[OPTIONS]]
+- <option 1>
+- <option 2>
+- <option 3>
+[[/OPTIONS]]
+
+The first option MUST be your recommended answer (echoed verbatim, in short form). Include 2 to 5 options. Only include the block when discrete choices are meaningful — for open-ended questions, omit it.
+
 This is the plan: ${INPUT}
 
 The goal is never to change code but to create a well written Jira ticket that can be used to implement the plan.
@@ -472,6 +482,16 @@ Ask one question at a time.
 Ask high-level outcome and user-focused questions — who the user is, what they're trying to do today, what success looks like, what's in or out of scope, rollout and audience impact. Stay product-shaped; do not ask implementation questions.
 
 If code references are provided and a question can be answered by exploring the codebase, explore the codebase instead of asking.
+
+When your question has multiple plausible answers (binary yes/no, or several distinct approaches), append an options block AFTER your recommendation so the user can select one with a click. Format:
+
+[[OPTIONS]]
+- <option 1>
+- <option 2>
+- <option 3>
+[[/OPTIONS]]
+
+The first option MUST be your recommended answer (echoed verbatim, in short form). Include 2 to 5 options. Only include the block when discrete choices are meaningful — for open-ended questions, omit it.
 
 This is the plan: ${INPUT}
 

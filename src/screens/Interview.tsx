@@ -20,6 +20,25 @@ import type { InterviewMessage, Provider } from "../types";
 import { MODELS } from "../types";
 
 const READY_RE = /\n?\s*\[\[READY\]\]\s*$/i;
+const OPTIONS_RE = /\[\[OPTIONS\]\]([\s\S]*?)\[\[\/OPTIONS\]\]/i;
+
+/**
+ * Pull the trailing options block out of an assistant message body.
+ * Returns the body sans block + the parsed option strings (bullet
+ * markers and surrounding whitespace stripped). Only matches when the
+ * closing tag is present, so a partially-streamed block stays inside
+ * the displayed body until the full block lands.
+ */
+function parseAssistantContent(raw: string): { body: string; options: string[] } {
+  const m = raw.match(OPTIONS_RE);
+  if (!m) return { body: raw, options: [] };
+  const options = m[1]
+    .split("\n")
+    .map((l) => l.replace(/^\s*[-*]\s+/, "").trim())
+    .filter((l) => l.length > 0);
+  const body = raw.replace(OPTIONS_RE, "").trimEnd();
+  return { body, options };
+}
 
 const uuid = (): string =>
   // Tauri webview provides crypto.randomUUID on every supported platform.
@@ -188,6 +207,19 @@ export function Interview() {
     }
   };
 
+  const handlePickOption = (option: string) => {
+    setReplyText(option);
+    // Focus the textarea so the user can edit before sending if they
+    // want to tweak the option, then place caret at the end.
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) return;
+      el.focus();
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+    });
+  };
+
   const handleSendReply = () => {
     const trimmed = replyText.trim();
     if (!trimmed || streaming) return;
@@ -277,10 +309,20 @@ export function Interview() {
             {ctx.prompt}
           </div>
           {messages.map((m, i) => (
-            <Bubble key={i} role={m.role} text={m.content} />
+            <Bubble
+              key={i}
+              role={m.role}
+              text={m.content}
+              onPickOption={m.role === "assistant" ? handlePickOption : undefined}
+            />
           ))}
           {streaming && streamingText.length > 0 && (
-            <Bubble role="assistant" text={streamingText.replace(READY_RE, "")} streaming />
+            <Bubble
+              role="assistant"
+              text={streamingText.replace(READY_RE, "")}
+              streaming
+              onPickOption={handlePickOption}
+            />
           )}
           {streaming && streamingText.length === 0 && (
             <ShimmerBubble />
@@ -382,26 +424,82 @@ export function Interview() {
   );
 }
 
-function Bubble({ role, text, streaming }: { role: "user" | "assistant"; text: string; streaming?: boolean }) {
+function Bubble({
+  role,
+  text,
+  streaming,
+  onPickOption,
+}: {
+  role: "user" | "assistant";
+  text: string;
+  streaming?: boolean;
+  onPickOption?: (option: string) => void;
+}) {
   const isUser = role === "user";
+  const { body, options } =
+    role === "assistant" ? parseAssistantContent(text) : { body: text, options: [] as string[] };
   return (
     <div style={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
-      <div
-        style={{
-          maxWidth: 620,
-          padding: "10px 14px",
-          borderRadius: 12,
-          background: isUser ? "var(--accent-soft)" : "var(--bg-card)",
-          border: `0.5px solid ${isUser ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "var(--border-strong)"}`,
-          color: "var(--fg)",
-          font: "400 14px var(--font-text)",
-          lineHeight: 1.55,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-          opacity: streaming ? 0.85 : 1,
-        }}
-      >
-        {text}
+      <div style={{ maxWidth: 620, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div
+          style={{
+            padding: "10px 14px",
+            borderRadius: 12,
+            background: isUser ? "var(--accent-soft)" : "var(--bg-card)",
+            border: `0.5px solid ${isUser ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "var(--border-strong)"}`,
+            color: "var(--fg)",
+            font: "400 14px var(--font-text)",
+            lineHeight: 1.55,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            opacity: streaming ? 0.85 : 1,
+          }}
+        >
+          {body}
+        </div>
+        {options.length > 0 && onPickOption && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {options.map((opt, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onPickOption(opt)}
+                style={{
+                  textAlign: "left",
+                  padding: "8px 12px",
+                  background: i === 0 ? "var(--accent-soft)" : "transparent",
+                  border: `0.5px solid ${i === 0 ? "color-mix(in oklab, var(--accent) 22%, transparent)" : "var(--border-strong)"}`,
+                  borderRadius: 8,
+                  color: i === 0 ? "var(--accent)" : "var(--fg-muted)",
+                  font: "500 13px var(--font-text)",
+                  cursor: "pointer",
+                  transition: "background 120ms ease, color 120ms ease, border-color 120ms ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background =
+                    i === 0 ? "color-mix(in oklab, var(--accent) 18%, transparent)" : "var(--bg-active)";
+                  e.currentTarget.style.color = i === 0 ? "var(--accent)" : "var(--fg)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = i === 0 ? "var(--accent-soft)" : "transparent";
+                  e.currentTarget.style.color = i === 0 ? "var(--accent)" : "var(--fg-muted)";
+                }}
+              >
+                <span style={{
+                  display: "inline-block",
+                  font: "600 10px var(--font-mono)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.08em",
+                  marginRight: 8,
+                  opacity: i === 0 ? 0.9 : 0.6,
+                }}>
+                  {i === 0 ? "Pick" : "Alt"}
+                </span>
+                {opt}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
