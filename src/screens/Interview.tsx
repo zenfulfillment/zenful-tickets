@@ -243,7 +243,7 @@ export function Interview() {
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "24px 80px 16px",
+            padding: "40px 80px 16px",
             display: "flex",
             flexDirection: "column",
             gap: 12,
@@ -262,6 +262,7 @@ export function Interview() {
             lineHeight: 1.55,
             whiteSpace: "pre-wrap",
             wordBreak: "break-word",
+            marginTop: 12,
             marginBottom: 4,
           }}>
             <div style={{
@@ -335,7 +336,8 @@ export function Interview() {
               placeholder={streaming ? "Waiting for the agent…" : "Reply…"}
               disabled={streaming}
               style={{
-                flex: 1, minHeight: 36, maxHeight: 220,
+                flex: 1, maxHeight: 220,
+                padding: "6px 0",
                 background: "transparent", border: 0, outline: 0, resize: "none",
                 font: "400 14px var(--font-text)", color: "var(--fg)", lineHeight: 1.5,
               }}
