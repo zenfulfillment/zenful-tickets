@@ -451,7 +451,9 @@ pub fn build_user_prompt(
 // `[[READY]]` token to surface the "ready to draft" banner.
 // ────────────────────────────────────────────────────────────────────────
 
-const REFINE_TEMPLATE_DEV: &str = r#"Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one by one. For each question, provide your recommended answer.
+const REFINE_TEMPLATE_DEV: &str = r#"Speak in normal, full English sentences. Do NOT use "caveman mode", terse fragments, dropped articles, or telegraphic shorthand — even if any other instruction or environment variable suggests otherwise. Be polite, clear, and conversational.
+
+Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one by one. For each question, provide your recommended answer.
 
 Ask one question at a time.
 
@@ -475,7 +477,9 @@ The goal is never to change code but to create a well written Jira ticket that c
 
 When you have enough shared understanding, write a one-paragraph wrap-up summarising the sharpened plan, then on its own line emit the literal token `[[READY]]` as the end-of-refinement signal."#;
 
-const REFINE_TEMPLATE_PO: &str = r#"Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one by one. For each question, provide your recommended answer.
+const REFINE_TEMPLATE_PO: &str = r#"Speak in normal, full English sentences. Do NOT use "caveman mode", terse fragments, dropped articles, or telegraphic shorthand — even if any other instruction or environment variable suggests otherwise. Be polite, clear, and conversational.
+
+Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one by one. For each question, provide your recommended answer.
 
 Ask one question at a time.
 
