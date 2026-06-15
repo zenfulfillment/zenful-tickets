@@ -49,12 +49,16 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "../components/ui/command";
 import { useAppStore } from "../store";
 import {
   ISSUE_TYPE_COLORS,
   MODELS,
   PRIORITY_COLORS,
+  TEAM_EXCLUSIVE_OPTION,
+  TEAM_OPTIONS,
+  TEAM_REQUIRED_PROJECT_KEY,
   type AttachmentRef,
   type JiraEpic,
   type JiraIssueType,
@@ -82,6 +86,8 @@ interface MetaState {
   selectedPriorityId: string | null;
   selectedEpicKey: string | null;
   selectedAssignee: JiraUser | null;
+  /** "IT Team" values — only meaningful for the IT/Engineering board. */
+  selectedTeams: string[];
 }
 
 export function Draft() {
@@ -114,6 +120,7 @@ export function Draft() {
     selectedPriorityId: null,
     selectedEpicKey: null,
     selectedAssignee: null,
+    selectedTeams: [],
   });
 
   // Current user (cached on mount). Used to (a) populate the assignee
@@ -519,6 +526,18 @@ export function Draft() {
       return;
     }
 
+    // IT/Engineering board business rule: at least one team is mandatory.
+    // The Jira field (customfield_10705) is itself optional server-side, so
+    // we enforce the "≥1 team" rule here, before the POST, rather than
+    // letting Jira accept a teamless ticket.
+    const teamRequired = meta.selectedProjectKey === TEAM_REQUIRED_PROJECT_KEY;
+    if (teamRequired && meta.selectedTeams.length === 0) {
+      setCreateError(
+        "Select at least one team — required for the Engineering (IT) board.",
+      );
+      return;
+    }
+
     // Body sent to Jira is what the user is looking at on screen
     // (streamText sans JSON fence). Two more strips applied here that
     // aren't needed for the on-screen preview:
@@ -659,6 +678,9 @@ export function Draft() {
         labels: draft.labels.length > 0 ? draft.labels : null,
         epic_key: meta.selectedEpicKey,
         assignee_account_id,
+        // Only send teams for the IT board; null everywhere else so the
+        // field never reaches a create screen that doesn't have it.
+        teams: teamRequired ? meta.selectedTeams : null,
       });
       const url = created.browse_url ?? created.self;
       setCreatedKey(created.key);
@@ -829,6 +851,7 @@ export function Draft() {
           meta.selectedAssignee?.accountId
           ?? (settings.autoAssign ? myAccountIdRef.current ?? undefined : undefined),
         labels: draft.labels ?? [],
+        teams: teamRequired ? meta.selectedTeams : [],
         subtask_keys: createdSubtasks.map((s) => s.jira_key),
         title: draft.title,
         initial_prompt: ctx.prompt,
@@ -874,6 +897,13 @@ export function Draft() {
   const it = meta.issueTypes.find((t) => t.id === meta.selectedIssueTypeId);
   const itColor = it ? ISSUE_TYPE_COLORS[it.name] : undefined;
   const pr = meta.priorities.find((p) => p.id === meta.selectedPriorityId);
+
+  // The IT/Engineering board carries work for three teams (ZenOS, ZenCore,
+  // ZenWMS) and requires at least one to be set. `teamRequired` gates the
+  // Team picker's visibility; `teamMissing` blocks the create action until
+  // the rule is satisfied. Both are false for every other board.
+  const teamRequired = meta.selectedProjectKey === TEAM_REQUIRED_PROJECT_KEY;
+  const teamMissing = teamRequired && meta.selectedTeams.length === 0;
 
   // Auto-scroll the body container as new tokens arrive. We piggyback on
   // streamText changes (the lowest-level signal we have) and only scroll
@@ -956,7 +986,8 @@ export function Draft() {
           <Button
             variant="primary"
             onClick={() => void handleCreate()}
-            disabled={!draft || creating || pipelineOpen || thinking}
+            disabled={!draft || creating || pipelineOpen || thinking || teamMissing}
+            title={teamMissing ? "Select at least one team — required for the Engineering (IT) board" : undefined}
           >
             {createdKey ? <><Icon.Check size={12} /> Created</> :
              creating ? <>Creating…</> :
@@ -1089,6 +1120,19 @@ export function Draft() {
               onSelect={(v) => setMeta((m) => ({ ...m, selectedIssueTypeId: v as string }))}
             />
           </MetaRow>
+
+          {/* Team — only for the IT/Engineering board, where ≥1 team is
+              mandatory (Jira customfield_10705). Hidden entirely for every
+              other board so the field is never shown or sent there. */}
+          {teamRequired && (
+            <MetaRow label="Team" required>
+              <TeamPicker
+                selected={meta.selectedTeams}
+                missing={teamMissing}
+                onChange={(teams) => setMeta((m) => ({ ...m, selectedTeams: teams }))}
+              />
+            </MetaRow>
+          )}
 
           <MetaRow label="Priority">
             <Menu
@@ -1876,14 +1920,19 @@ function TitleField({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
-function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
+function MetaRow({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: "0.5px solid var(--border)" }}>
       <div style={{
         width: 80, flexShrink: 0,
         font: "500 12px var(--font-text)",
         color: "var(--fg-muted)",
-      }}>{label}</div>
+      }}>
+        {label}
+        {required && (
+          <span title="Required" style={{ color: "#ff453a", marginLeft: 3 }}>*</span>
+        )}
+      </div>
       <div style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "flex-end" }}>{children}</div>
     </div>
   );
@@ -2175,6 +2224,133 @@ function formatTileBytes(bytes: number): string {
 function formatTileChars(chars: number): string {
   if (chars < 1000) return `${chars} chars`;
   return `${(chars / 1000).toFixed(1)}k chars`;
+}
+
+/**
+ * Multi-select picker for the IT/Engineering board's "IT Team" field
+ * (Jira `customfield_10705`). Static option list — there are exactly three
+ * teams (ZenOS, ZenCore, ZenWMS) — so no search input, just a togglable
+ * checklist that stays open across clicks.
+ *
+ * Selection is kept in canonical `TEAM_OPTIONS` order regardless of click
+ * order, so the trigger label and the value we send to Jira are stable.
+ * When `missing` (required-but-empty), the trigger is amber-tinted to draw
+ * the eye; the Create button is also disabled upstream until at least one
+ * team is chosen.
+ */
+function TeamPicker({
+  selected,
+  missing,
+  onChange,
+}: {
+  selected: string[];
+  missing: boolean;
+  onChange: (teams: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const toggle = (team: string) => {
+    let next: string[];
+    if (team === TEAM_EXCLUSIVE_OPTION) {
+      // "Unknown" is mutually exclusive: selecting it clears every real team;
+      // clicking it again clears the selection entirely.
+      next = selected.includes(TEAM_EXCLUSIVE_OPTION) ? [] : [TEAM_EXCLUSIVE_OPTION];
+    } else {
+      // Picking a real team drops "Unknown" if it was set, then toggles the
+      // clicked team within the remaining real-team set.
+      const base = selected.filter((t) => t !== TEAM_EXCLUSIVE_OPTION);
+      next = base.includes(team)
+        ? base.filter((t) => t !== team)
+        : [...base, team];
+    }
+    // Re-project onto the canonical order so order-of-clicks never leaks
+    // into the value we render or POST.
+    onChange(TEAM_OPTIONS.filter((t) => next.includes(t)));
+  };
+
+  const ordered = TEAM_OPTIONS.filter((t) => selected.includes(t));
+  const label = ordered.length > 0 ? ordered.join(", ") : "Select team(s)";
+
+  const renderItem = (team: string, hint?: string) => {
+    const isSel = selected.includes(team);
+    return (
+      <CommandItem
+        key={team}
+        value={team}
+        onSelect={() => toggle(team)}
+        className="!gap-2"
+      >
+        <span style={{
+          width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+          border: `1.5px solid ${isSel ? "var(--accent)" : "var(--border-strong)"}`,
+          background: isSel ? "var(--accent)" : "transparent",
+          color: "white",
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+        }}>
+          {isSel && <Icon.Check size={11} />}
+        </span>
+        <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+          <span style={{ font: "500 13px var(--font-text)", color: "var(--fg)" }}>
+            {team}
+          </span>
+          {hint && (
+            <span style={{ font: "400 11px var(--font-text)", color: "var(--fg-subtle)" }}>
+              {hint}
+            </span>
+          )}
+        </div>
+      </CommandItem>
+    );
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              height: 26, padding: "0 10px",
+              background: missing ? "rgba(255,159,10,0.12)" : "var(--bg-input)",
+              border: `0.5px solid ${missing ? "rgba(255,159,10,0.55)" : "var(--border-input)"}`,
+              borderRadius: 7,
+              font: "500 12.5px var(--font-text)",
+              color: ordered.length > 0 ? "var(--fg)" : (missing ? "#c77700" : "var(--fg-subtle)"),
+              cursor: "pointer",
+              maxWidth: "100%",
+              overflow: "hidden",
+            }}
+          >
+            <Icon.Users size={11} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {label}
+            </span>
+            <Icon.Chevron size={9} />
+          </button>
+        }
+      />
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="!w-56 !p-0 !bg-[var(--bg-elevated)] !text-[var(--fg)] !ring-[var(--border)] !shadow-[0_8px_30px_rgba(0,0,0,0.18)]"
+      >
+        <Command shouldFilter={false} className="bg-transparent">
+          <CommandList className="max-h-[260px]">
+            <CommandGroup heading="Teams">
+              {TEAM_OPTIONS.filter((t) => t !== TEAM_EXCLUSIVE_OPTION).map((t) =>
+                renderItem(t),
+              )}
+            </CommandGroup>
+            <CommandSeparator />
+            <CommandGroup>
+              {renderItem(TEAM_EXCLUSIVE_OPTION, "No specific team · can't combine with others")}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 /**

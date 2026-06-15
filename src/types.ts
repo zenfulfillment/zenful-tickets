@@ -197,6 +197,8 @@ export interface SaveHistoryPayload {
   epic_key?: string;
   assignee_account_id?: string;
   labels: string[];
+  /** "IT Team" values, when the ticket was filed against the IT board. */
+  teams?: string[];
   subtask_keys: string[];
   title: string;
   initial_prompt: string;
@@ -378,3 +380,35 @@ export const PRIORITY_COLORS: Record<string, string> = {
   Low: "#30d158",
   Lowest: "#64d2ff",
 };
+
+// ─────────────────────────────────────────────────────────────
+// IT / Engineering board "Team" requirement
+//
+// The IT - Engineering board now holds work for three teams (ZenOS,
+// ZenCore, ZenWMS). When drafting against THIS board, the Draft screen
+// shows a Team multi-select and requires at least one selection; every
+// other board hides the control and never sends the field.
+//
+// Backed by Jira custom field `customfield_10705` ("IT Team", a
+// multi-select). The values below MUST match the field's configured option
+// strings exactly — verified via the create-meta endpoint. The backend
+// (src-tauri/src/jira/mod.rs) maps the chosen values onto that field id.
+// ─────────────────────────────────────────────────────────────
+
+/** Jira project key for the board that requires a team selection. */
+export const TEAM_REQUIRED_PROJECT_KEY = "IT";
+
+/** Selectable teams for the IT board, in display order. Exact Jira option
+ *  values — do not localise or reorder without updating the field config.
+ *  `Unknown` is the catch-all (see TEAM_EXCLUSIVE_OPTION). */
+export const TEAM_OPTIONS = ["ZenOS", "ZenCore", "ZenWMS", "Unknown"] as const;
+
+export type TeamOption = (typeof TEAM_OPTIONS)[number];
+
+/**
+ * "Unknown" satisfies the "≥1 team" rule but is mutually exclusive — it can
+ * only be selected on its own, never alongside a real team. The Team picker
+ * enforces this by construction: picking "Unknown" clears the rest, and
+ * picking any real team clears "Unknown".
+ */
+export const TEAM_EXCLUSIVE_OPTION: TeamOption = "Unknown";

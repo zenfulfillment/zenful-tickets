@@ -30,6 +30,7 @@ import {
   Tag,
   Terminal,
   TriangleAlert,
+  Users,
   Volume2,
   VolumeOff,
   X,
@@ -88,6 +89,7 @@ export const Icon = {
   X: wrap(X, 14),
   Alert: wrap(TriangleAlert, 14),
   Paperclip: wrap(Paperclip, 14),
+  Users: wrap(Users, 14),
   Vol: wrap(Volume2, 14),
   VolMute: wrap(VolumeOff, 14),
 };

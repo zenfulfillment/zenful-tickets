@@ -51,6 +51,13 @@ export interface CreateIssueArgs {
   labels: string[] | null;
   epic_key: string | null;
   assignee_account_id: string | null;
+  /**
+   * "IT Team" values for the Engineering (IT) board's required multi-select
+   * (Jira `customfield_10705`). Null/omitted for every other board — the
+   * Draft screen only populates this when the IT board is selected. The Rust
+   * side skips the field entirely when this is null or empty.
+   */
+  teams?: string[] | null;
 }
 
 export const jiraCreateIssue = (req: CreateIssueArgs) =>
