@@ -44,6 +44,9 @@ pub struct SaveHistoryRequest {
     pub assignee_account_id: Option<String>,
     #[serde(default)]
     pub labels: Vec<String>,
+    /// "IT Team" values selected for the Engineering board, if any.
+    #[serde(default)]
+    pub teams: Vec<String>,
     #[serde(default)]
     pub subtask_keys: Vec<String>,
     pub title: String,
@@ -150,6 +153,12 @@ fn render_history_markdown(id: &str, req: &SaveHistoryRequest) -> String {
         out.push_str("labels:\n");
         for l in &req.labels {
             out.push_str(&format!("  - {}\n", yaml_dq(l)));
+        }
+    }
+    if !req.teams.is_empty() {
+        out.push_str("teams:\n");
+        for t in &req.teams {
+            out.push_str(&format!("  - {}\n", yaml_dq(t)));
         }
     }
     if !req.subtask_keys.is_empty() {

@@ -11,6 +11,17 @@ use tauri::State;
 
 pub mod adf;
 
+/// Jira custom-field id for the "IT Team" multi-select on the Engineering
+/// (project key `IT`) board. Verified via
+/// `/rest/api/3/issue/createmeta/IT/issuetypes/...`: it's a
+/// `com.atlassian.jira.plugin.system.customfieldtypes:multiselect` whose
+/// allowed values are `ZenOS`, `ZenCore`, `ZenWMS` (and a catch-all
+/// `Unknown`). A multi-select option field is set by posting an array of
+/// `{ "value": "<option>" }` objects. Only the frontend decides *when* to
+/// send teams (it's gated to the IT board there); the backend just forwards
+/// whatever non-empty list it receives.
+const IT_TEAM_FIELD_ID: &str = "customfield_10705";
+
 /// Build the base URL from a workspace host like "acme.atlassian.net".
 fn base_url(site: &str) -> AppResult<String> {
     let trimmed = site.trim().trim_end_matches('/');
@@ -159,6 +170,12 @@ pub struct CreateIssueRequest {
     pub labels: Option<Vec<String>>,
     pub epic_key: Option<String>,
     pub assignee_account_id: Option<String>,
+    /// "IT Team" values (e.g. `["ZenOS", "ZenWMS"]`) for the Engineering
+    /// board's required multi-select. Mapped to `customfield_10705`. The
+    /// frontend only populates this for the IT board and enforces the
+    /// "at least one" rule; here we just forward a non-empty list.
+    #[serde(default)]
+    pub teams: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -308,12 +325,13 @@ pub async fn jira_create_issue(
     req: CreateIssueRequest,
 ) -> AppResult<CreateIssueResponse> {
     log::info!(
-        "jira_create_issue: project={} type_id={} priority={:?} epic={:?} labels={} desc_len={}",
+        "jira_create_issue: project={} type_id={} priority={:?} epic={:?} labels={} teams={:?} desc_len={}",
         req.project_key,
         req.issue_type_id,
         req.priority_id,
         req.epic_key,
         req.labels.as_ref().map(|l| l.len()).unwrap_or(0),
+        req.teams.as_deref().unwrap_or(&[]),
         req.description_markdown.len()
     );
     let s = secrets::load()?;
@@ -338,6 +356,22 @@ pub async fn jira_create_issue(
     }
     if let Some(a) = req.assignee_account_id {
         fields.insert("assignee".into(), json!({ "accountId": a }));
+    }
+    // "IT Team" multi-select. Jira wants an array of option objects keyed by
+    // `value`; the values must match the field's configured options exactly
+    // (the frontend constrains the selection to those, so we don't re-validate
+    // here). Skip the field entirely when the list is empty/absent so non-IT
+    // boards — which don't have this field on their create screen — never see it.
+    if let Some(teams) = req.teams {
+        let teams: Vec<Value> = teams
+            .into_iter()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .map(|t| json!({ "value": t }))
+            .collect();
+        if !teams.is_empty() {
+            fields.insert(IT_TEAM_FIELD_ID.into(), json!(teams));
+        }
     }
     if let Some(epic_key) = req.epic_key {
         // Modern Jira Cloud: parent link works for team-managed + company-managed
