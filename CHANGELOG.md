@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-06-15
+
+### Added
+- **Team selection for the IT / Engineering board**: the Draft screen now shows a
+  required Team multi-select when filing against the IT board, mapped to Jira's
+  "IT Team" field. ZenOS / ZenCore / ZenWMS can be combined; "Unknown" is a
+  mutually-exclusive catch-all. Every other board is unaffected — the control is
+  hidden and the field is never sent. Selected teams are recorded in the local
+  ticket history.
+
 ## [0.1.15] — 2026-05-19
 
 ### Added

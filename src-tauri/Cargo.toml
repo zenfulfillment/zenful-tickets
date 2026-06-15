@@ -1,6 +1,6 @@
 [package]
 name = "zenfultickets"
-version = "0.1.15"
+version = "0.2.0"
 description = "Zenful Tickets — AI-assisted Jira ticket drafter"
 authors = ["Kevin Koester <kevin.koester@zenfulfillment.com>"]
 edition = "2021"
